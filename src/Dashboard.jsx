@@ -19,6 +19,7 @@ import { supportsFileSystemAccess, EXCEL_HANDLE_KEY, REVENUE_HANDLE_KEY } from "
 import { useLoadableFile } from "./lib/useLoadableFile.js";
 import logo from "./assets/rideeazy-logo.png";
 import seedData from "./seedData.json";
+import "./print.css";
 
 const EXCEL_CACHE_KEY = "rideeazy-dashboard-cache";
 const REVENUE_CACHE_KEY = "rideeazy-revenue-cache";
@@ -214,6 +215,8 @@ export default function Dashboard() {
     return { from, to, matched, summary, missingDates };
   }, [mergedDays, dailyFrom, dailyTo]);
 
+  const exportPdf = () => window.print();
+
   return (
     <div
       dir="rtl"
@@ -267,7 +270,23 @@ export default function Dashboard() {
             {excelLoader.lastLoaded ? ` · נטען ${formatTimestamp(excelLoader.lastLoaded)}` : ""}
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div className="no-print" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button
+            onClick={exportPdf}
+            style={{
+              background: "transparent",
+              color: "#D8DAEA",
+              border: "1px solid rgba(255,255,255,0.25)",
+              borderRadius: 2,
+              padding: "6px 14px",
+              fontSize: 13,
+              cursor: "pointer",
+              fontWeight: 700,
+            }}
+          >
+            ייצוא ל-PDF
+          </button>
+          <div style={{ width: 1, alignSelf: "stretch", background: "rgba(255,255,255,0.2)" }} />
           <button
             onClick={excelLoader.refresh}
             disabled={excelLoader.status === "loading"}
@@ -326,13 +345,13 @@ export default function Dashboard() {
       </div>
 
       {!supportsFileSystemAccess && (
-        <div style={{ background: "#FFF7E6", color: "#8A6116", fontSize: 12.5, padding: "8px 28px" }}>
+        <div className="no-print" style={{ background: "#FFF7E6", color: "#8A6116", fontSize: 12.5, padding: "8px 28px" }}>
           הדפדפן שלך לא תומך בזכירת קבצים אוטומטית — בכל רענון תתבקשו לבחור מחדש את הקובץ (אקסל או CSV).
           (נתמך ב-Chrome / Edge)
         </div>
       )}
       {excelLoader.status === "error" && (
-        <div style={{ background: "#FDECEC", color: "#B23A34", fontSize: 12.5, padding: "8px 28px" }}>
+        <div className="no-print" style={{ background: "#FDECEC", color: "#B23A34", fontSize: 12.5, padding: "8px 28px" }}>
           {excelLoader.errorMsg}
         </div>
       )}
@@ -355,6 +374,7 @@ export default function Dashboard() {
           <>
             {/* KPI cards */}
             <div
+              className="print-avoid-break"
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
@@ -394,6 +414,7 @@ export default function Dashboard() {
 
             {/* Daily view */}
             <div
+              className="print-avoid-break"
               style={{
                 background: "#FFFFFF",
                 border: `1px solid ${BORDER}`,
@@ -409,7 +430,7 @@ export default function Dashboard() {
               <div style={{ fontSize: 12, color: "#8B90AD", marginBottom: 14 }}>
                 בחרו תאריך בודד, או טווח תאריכים, לצפייה בנתונים היומיים
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
+              <div className="no-print" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
                 <label style={{ fontSize: 12.5, color: "#6B7099", display: "flex", alignItems: "center", gap: 6 }}>
                   מתאריך
                   <input
@@ -450,7 +471,7 @@ export default function Dashboard() {
               </div>
 
               {!dailyResult ? (
-                <div style={{ fontSize: 12.5, color: "#9498B5" }}>
+                <div className="no-print" style={{ fontSize: 12.5, color: "#9498B5" }}>
                   לדוגמה: בחרו 01/07/26 לתאריך בודד, או 07/06/26 עד 11/06/26 לטווח.
                 </div>
               ) : dailyResult.matched.length === 0 ? (
@@ -496,7 +517,7 @@ export default function Dashboard() {
                     </div>
                   )}
 
-                  <div style={{ overflowX: "auto" }}>
+                  <div className="print-table-wrap" style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 600 }}>
                       <thead>
                         <tr>
@@ -532,6 +553,7 @@ export default function Dashboard() {
 
             {/* Revenue */}
             <div
+              className="print-avoid-break"
               style={{
                 background: "#FFFFFF",
                 border: `1px solid ${BORDER}`,
@@ -559,7 +581,7 @@ export default function Dashboard() {
                     {revenueLoader.lastLoaded ? ` · נטען ${formatTimestamp(revenueLoader.lastLoaded)}` : ""}
                   </div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div className="no-print" style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   {revenueDays.length > 0 && (
                     <button
                       onClick={revenueLoader.refresh}
@@ -641,7 +663,7 @@ export default function Dashboard() {
 
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: NAVY }}>הכנסות שבועיות</div>
-                    <div style={{ display: "flex", gap: 6 }}>
+                    <div className="no-print" style={{ display: "flex", gap: 6 }}>
                       {[
                         { id: "12w", label: "12 שבועות אחרונים" },
                         { id: "all", label: "הכל" },
@@ -708,6 +730,7 @@ export default function Dashboard() {
 
             {/* Funnel trend chart */}
             <div
+              className="print-avoid-break"
               style={{
                 background: "#FFFFFF",
                 border: `1px solid ${BORDER}`,
@@ -743,6 +766,7 @@ export default function Dashboard() {
 
             {/* Monthly closed-orders summary */}
             <div
+              className="print-avoid-break"
               style={{
                 background: "#FFFFFF",
                 border: `1px solid ${BORDER}`,
@@ -777,6 +801,7 @@ export default function Dashboard() {
             {/* Conversion rates (only weeks that have this data) */}
             {rateData.length > 0 && (
               <div
+                className="print-avoid-break"
                 style={{
                   background: "#FFFFFF",
                   border: `1px solid ${BORDER}`,
@@ -825,7 +850,7 @@ export default function Dashboard() {
               <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14, color: NAVY }}>
                 פירוט שבועי מלא
               </div>
-              <div style={{ overflowX: "auto" }}>
+              <div className="print-table-wrap" style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 720 }}>
                   <thead>
                     <tr>
