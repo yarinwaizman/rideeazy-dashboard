@@ -61,29 +61,38 @@ function toNumber(v) {
   return Number.isNaN(n) ? null : n;
 }
 
-// Columns 1-6 are the day-of-week values (Sun-Thu + combined weekend);
-// column 7 is a pre-computed total that's sometimes left blank for weeks
-// still in progress, so we sum the days ourselves instead of trusting it.
-function sumDayValues(row) {
-  let total = 0;
-  for (let i = 1; i <= 6 && i < row.length; i++) {
-    const n = toNumber(row[i]);
-    if (n !== null) total += n;
-  }
-  return total;
+// Columns 1-6 are the day-of-week values (Sun, Mon, Tue, Wed, Thu, then a
+// combined Fri+Sat "weekend" column); column 7 is a pre-computed total
+// that's sometimes left blank for weeks still in progress, so weekly totals
+// are always derived by summing these 6 values ourselves.
+function rowMetricValues(row) {
+  const vals = [];
+  for (let i = 1; i <= 6; i++) vals.push(i < row.length ? toNumber(row[i]) : null);
+  return vals;
 }
 
-function averagePercent(row) {
+function rowRateValues(row) {
   const vals = [];
-  for (let i = 1; i <= 6 && i < row.length; i++) {
-    const cell = row[i];
+  for (let i = 1; i <= 6; i++) {
+    const cell = i < row.length ? row[i] : null;
     if (typeof cell === "string" && cell.trim().endsWith("%")) {
       const n = Number(cell.trim().replace("%", ""));
-      if (!Number.isNaN(n)) vals.push(n);
+      vals.push(Number.isNaN(n) ? null : n / 100);
+    } else {
+      vals.push(null);
     }
   }
-  if (vals.length === 0) return null;
-  return vals.reduce((a, b) => a + b, 0) / vals.length / 100;
+  return vals;
+}
+
+function sumNonNull(vals) {
+  return vals.reduce((acc, v) => (v !== null ? acc + v : acc), 0);
+}
+
+function averageNonNull(vals) {
+  const present = vals.filter((v) => v !== null);
+  if (present.length === 0) return null;
+  return present.reduce((a, b) => a + b, 0) / present.length;
 }
 
 function isAllZero(metrics) {
@@ -137,6 +146,57 @@ function parseWeekRange(label) {
   return { start: startDate, end: endDate };
 }
 
+function toISODate(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function addDays(date, n) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + n);
+  return d;
+}
+
+const WEEKDAY_LABELS = ["יום ראשון", "יום שני", "יום שלישי", "יום רביעי", "יום חמישי", "שישי-שבת"];
+
+// Column 6 (index 5) combines Friday+Saturday into one number with no way
+// to split it further, so it becomes a single record spanning both dates
+// rather than two separate days.
+function buildDayRecords(weekLabel, month, columns, rateColumns) {
+  const range = parseWeekRange(weekLabel);
+  if (!range) return [];
+  // The week's Sunday: column 1 always lands on Sunday of the ISO/Israeli
+  // (Sun-start) week containing the label's end date.
+  const sunday = addDays(range.end, -range.end.getDay());
+
+  const records = [];
+  for (let i = 0; i < 6; i++) {
+    const metrics = {};
+    for (const [canonical, vals] of Object.entries(columns)) {
+      if (vals[i] !== null) metrics[canonical] = vals[i];
+    }
+    const rates = {};
+    for (const [canonical, vals] of Object.entries(rateColumns)) {
+      if (vals[i] !== null) rates[canonical] = vals[i];
+    }
+    if (Object.keys(metrics).length === 0 && Object.keys(rates).length === 0) continue;
+
+    const date = addDays(sunday, i);
+    const endDate = i === 5 ? addDays(sunday, 6) : date;
+    records.push({
+      date: toISODate(date),
+      endDate: toISODate(endDate),
+      label: WEEKDAY_LABELS[i],
+      month,
+      metrics,
+      rates,
+    });
+  }
+  return records;
+}
+
 export function parseWorkbook(workbook) {
   const weeks = [];
 
@@ -158,7 +218,7 @@ export function parseWorkbook(workbook) {
 
       if (isWeekHeader(label)) {
         if (current) weeks.push(current);
-        current = { week: String(label).trim(), month, metrics: {}, rates: {} };
+        current = { week: String(label).trim(), month, columns: {}, rateColumns: {} };
         continue;
       }
       if (!current || typeof label !== "string") continue;
@@ -169,10 +229,14 @@ export function parseWorkbook(workbook) {
         // closed orders) are split across multiple source rows within the
         // same week block (e.g. closed via tender + closed via system).
         const canonical = METRIC_ALIASES[key];
-        current.metrics[canonical] = (current.metrics[canonical] || 0) + sumDayValues(row);
+        const vals = rowMetricValues(row);
+        if (!current.columns[canonical]) current.columns[canonical] = [null, null, null, null, null, null];
+        for (let i = 0; i < 6; i++) {
+          if (vals[i] !== null) current.columns[canonical][i] = (current.columns[canonical][i] || 0) + vals[i];
+        }
       } else if (RATE_ALIASES[key]) {
-        const avg = averagePercent(row);
-        if (avg !== null) current.rates[RATE_ALIASES[key]] = avg;
+        const canonical = RATE_ALIASES[key];
+        current.rateColumns[canonical] = rowRateValues(row);
       }
     }
     if (current) weeks.push(current);
@@ -187,10 +251,28 @@ export function parseWorkbook(workbook) {
     return !range || range.start <= now; // fail open if the label doesn't parse
   });
 
+  const withTotals = started.map((w) => {
+    const metrics = {};
+    for (const [canonical, vals] of Object.entries(w.columns)) metrics[canonical] = sumNonNull(vals);
+    const rates = {};
+    for (const [canonical, vals] of Object.entries(w.rateColumns)) {
+      const avg = averageNonNull(vals);
+      if (avg !== null) rates[canonical] = avg;
+    }
+    return { week: w.week, month: w.month, metrics, rates, columns: w.columns, rateColumns: w.rateColumns };
+  });
+
   // Stale template blocks (leftover, never filled in) show up as all-zero
   // weeks anywhere but the end. The most recent started week is kept even
   // if it's all zero, since that just means it hasn't been filled in yet.
-  return started.filter((w, i) => i === started.length - 1 || !isAllZero(w.metrics));
+  const finalWeeks = withTotals.filter((w, i) => i === withTotals.length - 1 || !isAllZero(w.metrics));
+
+  const days = finalWeeks.flatMap((w) => buildDayRecords(w.week, w.month, w.columns, w.rateColumns));
+
+  // Drop the internal per-column data before returning weeks publicly.
+  const weeksOut = finalWeeks.map(({ week, month, metrics, rates }) => ({ week, month, metrics, rates }));
+
+  return { weeks: weeksOut, days };
 }
 
 export function monthlyTotals(weeks, metricKey = "הזמנות ממכרזים") {
@@ -202,4 +284,22 @@ export function monthlyTotals(weeks, metricKey = "הזמנות ממכרזים") 
     month,
     total: totals.get(month),
   }));
+}
+
+// Days whose [date, endDate] range overlaps [fromISO, toISO] (inclusive).
+// The combined Friday-Saturday record is matched if either date falls in
+// range, so a query that only touches one side of the weekend still finds it.
+export function daysInRange(days, fromISO, toISO) {
+  const to = toISO || fromISO;
+  return days
+    .filter((d) => d.date <= to && d.endDate >= fromISO)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export function sumDayMetrics(dayRecords) {
+  const metrics = {};
+  for (const d of dayRecords) {
+    for (const [k, v] of Object.entries(d.metrics)) metrics[k] = (metrics[k] || 0) + v;
+  }
+  return metrics;
 }

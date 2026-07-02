@@ -21,16 +21,16 @@ if (!fs.existsSync(configPath)) {
 const { xlsxPath } = JSON.parse(fs.readFileSync(configPath, "utf-8"));
 const buf = fs.readFileSync(xlsxPath);
 const workbook = XLSX.read(buf, { type: "buffer", cellDates: true });
-const weeks = parseWorkbook(workbook);
+const { weeks, days } = parseWorkbook(workbook);
 
 const outPath = path.join(__dirname, "../src/seedData.json");
 fs.writeFileSync(
   outPath,
   JSON.stringify(
-    { weeks, fileName: path.basename(xlsxPath), lastLoaded: new Date().toISOString() },
+    { weeks, days, fileName: path.basename(xlsxPath), lastLoaded: new Date().toISOString() },
     null,
     2
   )
 );
 
-console.log(`Wrote ${weeks.length} weeks to ${outPath}`);
+console.log(`Wrote ${weeks.length} weeks and ${days.length} day records to ${outPath}`);

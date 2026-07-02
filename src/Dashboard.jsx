@@ -13,7 +13,7 @@ import {
   Legend,
   LabelList,
 } from "recharts";
-import { parseWorkbook, monthlyTotals, METRIC_LABELS } from "./lib/parseWorkbook.js";
+import { parseWorkbook, monthlyTotals, daysInRange, sumDayMetrics, METRIC_LABELS } from "./lib/parseWorkbook.js";
 import {
   supportsFileSystemAccess,
   saveFileHandle,
@@ -49,6 +49,11 @@ function Delta({ value }) {
   );
 }
 
+function formatShortDate(iso) {
+  const [, m, d] = iso.split("-");
+  return `${d}/${m}`;
+}
+
 function formatTimestamp(iso) {
   if (!iso) return null;
   return new Date(iso).toLocaleString("he-IL", {
@@ -62,14 +67,16 @@ function formatTimestamp(iso) {
 export default function Dashboard() {
   const [range, setRange] = useState("all"); // 'all' | '8w' | '4w'
   const [weeks, setWeeks] = useState(seedData.weeks);
+  const [days, setDays] = useState(seedData.days || []);
   const [fileName, setFileName] = useState(seedData.fileName);
   const [lastLoaded, setLastLoaded] = useState(seedData.lastLoaded);
   const [status, setStatus] = useState("idle"); // idle | loading | error
   const [errorMsg, setErrorMsg] = useState(null);
   const fileInputRef = useRef(null);
 
-  const applyWeeks = useCallback((parsedWeeks, name) => {
+  const applyData = useCallback((parsedWeeks, parsedDays, name) => {
     setWeeks(parsedWeeks);
+    setDays(parsedDays);
     setFileName(name);
     const now = new Date().toISOString();
     setLastLoaded(now);
@@ -77,7 +84,7 @@ export default function Dashboard() {
     setErrorMsg(null);
     localStorage.setItem(
       CACHE_KEY,
-      JSON.stringify({ weeks: parsedWeeks, fileName: name, lastLoaded: now })
+      JSON.stringify({ weeks: parsedWeeks, days: parsedDays, fileName: name, lastLoaded: now })
     );
   }, []);
 
@@ -87,14 +94,14 @@ export default function Dashboard() {
       try {
         const buf = await file.arrayBuffer();
         const workbook = XLSX.read(buf, { type: "array", cellDates: true });
-        const parsedWeeks = parseWorkbook(workbook);
-        applyWeeks(parsedWeeks, file.name);
+        const { weeks: parsedWeeks, days: parsedDays } = parseWorkbook(workbook);
+        applyData(parsedWeeks, parsedDays, file.name);
       } catch (err) {
         setStatus("error");
         setErrorMsg(err.message || "שגיאה בקריאת הקובץ");
       }
     },
-    [applyWeeks]
+    [applyData]
   );
 
   const pickFile = useCallback(async () => {
@@ -162,6 +169,7 @@ export default function Dashboard() {
       try {
         const parsed = JSON.parse(cached);
         setWeeks(parsed.weeks || []);
+        setDays(parsed.days || []);
         setFileName(parsed.fileName || null);
         setLastLoaded(parsed.lastLoaded || null);
       } catch {
@@ -216,6 +224,33 @@ export default function Dashboard() {
   const monthlyClosedOrders = useMemo(() => monthlyTotals(weeks, "הזמנות ממכרזים"), [weeks]);
 
   const allMetricKeys = Object.keys(METRIC_LABELS);
+
+  const [dailyFrom, setDailyFrom] = useState("");
+  const [dailyTo, setDailyTo] = useState("");
+
+  const dailyResult = useMemo(() => {
+    if (!dailyFrom) return null;
+    const from = dailyFrom;
+    const to = dailyTo && dailyTo >= from ? dailyTo : dailyFrom;
+    const matched = daysInRange(days, from, to);
+    const summary = sumDayMetrics(matched);
+
+    const requestedDates = [];
+    let d = new Date(`${from}T00:00:00`);
+    const end = new Date(`${to}T00:00:00`);
+    while (d <= end) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      requestedDates.push(`${y}-${m}-${day}`);
+      d.setDate(d.getDate() + 1);
+    }
+    const missingDates = requestedDates.filter(
+      (date) => !matched.some((r) => r.date <= date && r.endDate >= date)
+    );
+
+    return { from, to, matched, summary, missingDates };
+  }, [days, dailyFrom, dailyTo]);
 
   return (
     <div
@@ -386,6 +421,140 @@ export default function Dashboard() {
                   </div>
                 );
               })}
+            </div>
+
+            {/* Daily view */}
+            <div
+              style={{
+                background: "#FFFFFF",
+                border: `1px solid ${BORDER}`,
+                borderRadius: 3,
+                padding: "20px 20px",
+                marginBottom: 24,
+                boxShadow: "0 1px 3px rgba(28,32,71,0.05)",
+              }}
+            >
+              <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4, color: NAVY }}>
+                תצוגה יומית
+              </div>
+              <div style={{ fontSize: 12, color: "#8B90AD", marginBottom: 14 }}>
+                בחרו תאריך בודד, או טווח תאריכים, לצפייה בנתונים היומיים
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
+                <label style={{ fontSize: 12.5, color: "#6B7099", display: "flex", alignItems: "center", gap: 6 }}>
+                  מתאריך
+                  <input
+                    type="date"
+                    value={dailyFrom}
+                    onChange={(e) => setDailyFrom(e.target.value)}
+                    style={{ border: `1px solid ${BORDER}`, borderRadius: 3, padding: "5px 8px", fontSize: 13 }}
+                  />
+                </label>
+                <label style={{ fontSize: 12.5, color: "#6B7099", display: "flex", alignItems: "center", gap: 6 }}>
+                  עד תאריך (אופציונלי)
+                  <input
+                    type="date"
+                    value={dailyTo}
+                    onChange={(e) => setDailyTo(e.target.value)}
+                    style={{ border: `1px solid ${BORDER}`, borderRadius: 3, padding: "5px 8px", fontSize: 13 }}
+                  />
+                </label>
+                {(dailyFrom || dailyTo) && (
+                  <button
+                    onClick={() => {
+                      setDailyFrom("");
+                      setDailyTo("");
+                    }}
+                    style={{
+                      background: "transparent",
+                      color: "#6B7099",
+                      border: `1px solid ${BORDER}`,
+                      borderRadius: 3,
+                      padding: "5px 12px",
+                      fontSize: 12.5,
+                      cursor: "pointer",
+                    }}
+                  >
+                    נקה
+                  </button>
+                )}
+              </div>
+
+              {!dailyResult ? (
+                <div style={{ fontSize: 12.5, color: "#9498B5" }}>
+                  לדוגמה: בחרו 01/07/26 לתאריך בודד, או 07/06/26 עד 11/06/26 לטווח.
+                </div>
+              ) : dailyResult.matched.length === 0 ? (
+                <div style={{ fontSize: 12.5, color: "#B23A34" }}>
+                  אין נתונים רשומים עבור {dailyResult.from === dailyResult.to ? dailyResult.from : `${dailyResult.from} – ${dailyResult.to}`}.
+                </div>
+              ) : (
+                <>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+                      gap: 12,
+                      marginBottom: 16,
+                    }}
+                  >
+                    {kpis.map((k) => (
+                      <div
+                        key={k.key}
+                        style={{
+                          background: BG,
+                          border: `1px solid ${BORDER}`,
+                          borderRadius: 3,
+                          padding: "10px 14px",
+                        }}
+                      >
+                        <div style={{ fontSize: 11.5, color: "#6B7099", marginBottom: 4, fontWeight: 600 }}>
+                          {k.label}
+                        </div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: NAVY }}>
+                          {dailyResult.summary[k.key] || 0}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {dailyResult.missingDates.length > 0 && (
+                    <div style={{ fontSize: 12, color: "#B8860B", background: "#FFF7E6", padding: "8px 12px", borderRadius: 3, marginBottom: 16 }}>
+                      אין נתונים רשומים עבור: {dailyResult.missingDates.join(", ")} — ייתכן שלא הוזנו נתונים לתאריך זה
+                      בקובץ (להבדיל מנתון אפס בפועל).
+                    </div>
+                  )}
+
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 600 }}>
+                      <thead>
+                        <tr>
+                          <th style={thStyle}>תאריך</th>
+                          {allMetricKeys.map((k) => (
+                            <th key={k} style={thStyle}>
+                              {METRIC_LABELS[k]}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dailyResult.matched.map((r, i) => (
+                          <tr key={r.date + i} style={{ background: i % 2 === 0 ? "#FFFFFF" : "#F7F8FB" }}>
+                            <td style={{ ...tdStyle, fontWeight: 700, color: NAVY }}>
+                              {r.label} · {r.date === r.endDate ? formatShortDate(r.date) : `${formatShortDate(r.date)}–${formatShortDate(r.endDate)}`}
+                            </td>
+                            {allMetricKeys.map((k) => (
+                              <td key={k} style={tdStyle}>
+                                {r.metrics[k] ?? "–"}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Funnel trend chart */}
