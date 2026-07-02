@@ -46,6 +46,8 @@ const TEAL = "#51DFD7";
 const BORDER = "#E7E9EF";
 const BG = "#F7F8FB";
 const GRID = BORDER;
+const RADIUS = 16; // cards, inputs
+const RADIUS_PILL = 999; // buttons, tabs
 
 function pctChange(curr, prev) {
   if (!prev || prev === 0) return null;
@@ -241,7 +243,7 @@ export default function Dashboard() {
       dir="rtl"
       style={{
         fontFamily:
-          "'Open Sans Hebrew', 'Open Sans', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif",
+          "'Rubik', 'Open Sans Hebrew', 'Open Sans', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif",
         background: BG,
         color: NAVY,
         minHeight: "100vh",
@@ -296,7 +298,7 @@ export default function Dashboard() {
               background: "transparent",
               color: "#D8DAEA",
               border: "1px solid rgba(255,255,255,0.25)",
-              borderRadius: 2,
+              borderRadius: RADIUS_PILL,
               padding: "6px 14px",
               fontSize: 13,
               cursor: "pointer",
@@ -313,7 +315,7 @@ export default function Dashboard() {
               background: TEAL,
               color: NAVY,
               border: `1px solid ${TEAL}`,
-              borderRadius: 2,
+              borderRadius: RADIUS_PILL,
               padding: "6px 14px",
               fontSize: 13,
               cursor: excelLoader.status === "loading" ? "wait" : "pointer",
@@ -328,7 +330,7 @@ export default function Dashboard() {
               background: "transparent",
               color: "#D8DAEA",
               border: "1px solid rgba(255,255,255,0.25)",
-              borderRadius: 2,
+              borderRadius: RADIUS_PILL,
               padding: "6px 14px",
               fontSize: 13,
               cursor: "pointer",
@@ -350,7 +352,7 @@ export default function Dashboard() {
                 background: range === r.id ? TEAL : "transparent",
                 color: range === r.id ? NAVY : "#D8DAEA",
                 border: `1px solid ${range === r.id ? TEAL : "rgba(255,255,255,0.25)"}`,
-                borderRadius: 2,
+                borderRadius: RADIUS_PILL,
                 padding: "6px 14px",
                 fontSize: 13,
                 cursor: "pointer",
@@ -381,7 +383,7 @@ export default function Dashboard() {
             style={{
               background: "#FFFFFF",
               border: `1px solid ${BORDER}`,
-              borderRadius: 3,
+              borderRadius: RADIUS,
               padding: 40,
               textAlign: "center",
               color: "#6B7099",
@@ -411,9 +413,9 @@ export default function Dashboard() {
                       background: "#FFFFFF",
                       border: `1px solid ${BORDER}`,
                       borderTop: `3px solid ${TEAL}`,
-                      borderRadius: 3,
+                      borderRadius: RADIUS,
                       padding: "16px 18px",
-                      boxShadow: "0 1px 3px rgba(28,32,71,0.05)",
+                      boxShadow: "0 4px 20px rgba(28,32,71,0.06)",
                     }}
                   >
                     <div style={{ fontSize: 12.5, color: "#6B7099", marginBottom: 8, fontWeight: 600 }}>
@@ -437,10 +439,10 @@ export default function Dashboard() {
               style={{
                 background: "#FFFFFF",
                 border: `1px solid ${BORDER}`,
-                borderRadius: 3,
+                borderRadius: RADIUS,
                 padding: "20px 20px",
                 marginBottom: 24,
-                boxShadow: "0 1px 3px rgba(28,32,71,0.05)",
+                boxShadow: "0 4px 20px rgba(28,32,71,0.06)",
               }}
             >
               <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4, color: NAVY }}>
@@ -456,7 +458,7 @@ export default function Dashboard() {
                     type="date"
                     value={dailyFrom}
                     onChange={(e) => setDailyFrom(e.target.value)}
-                    style={{ border: `1px solid ${BORDER}`, borderRadius: 3, padding: "5px 8px", fontSize: 13 }}
+                    style={{ border: `1px solid ${BORDER}`, borderRadius: RADIUS, padding: "5px 8px", fontSize: 13 }}
                   />
                 </label>
                 <label style={{ fontSize: 12.5, color: "#6B7099", display: "flex", alignItems: "center", gap: 6 }}>
@@ -465,7 +467,7 @@ export default function Dashboard() {
                     type="date"
                     value={dailyTo}
                     onChange={(e) => setDailyTo(e.target.value)}
-                    style={{ border: `1px solid ${BORDER}`, borderRadius: 3, padding: "5px 8px", fontSize: 13 }}
+                    style={{ border: `1px solid ${BORDER}`, borderRadius: RADIUS, padding: "5px 8px", fontSize: 13 }}
                   />
                 </label>
                 {(dailyFrom || dailyTo) && (
@@ -478,7 +480,7 @@ export default function Dashboard() {
                       background: "transparent",
                       color: "#6B7099",
                       border: `1px solid ${BORDER}`,
-                      borderRadius: 3,
+                      borderRadius: RADIUS,
                       padding: "5px 12px",
                       fontSize: 12.5,
                       cursor: "pointer",
@@ -513,7 +515,7 @@ export default function Dashboard() {
                         style={{
                           background: BG,
                           border: `1px solid ${BORDER}`,
-                          borderRadius: 3,
+                          borderRadius: RADIUS,
                           padding: "10px 14px",
                         }}
                       >
@@ -530,7 +532,7 @@ export default function Dashboard() {
                   </div>
 
                   {dailyResult.missingDates.length > 0 && (
-                    <div style={{ fontSize: 12, color: "#B8860B", background: "#FFF7E6", padding: "8px 12px", borderRadius: 3, marginBottom: 16 }}>
+                    <div style={{ fontSize: 12, color: "#B8860B", background: "#FFF7E6", padding: "8px 12px", borderRadius: RADIUS, marginBottom: 16 }}>
                       אין נתונים רשומים עבור: {dailyResult.missingDates.join(", ")} — ייתכן שלא הוזנו נתונים לתאריך זה
                       בקובץ (להבדיל מנתון אפס בפועל).
                     </div>
@@ -576,10 +578,10 @@ export default function Dashboard() {
               style={{
                 background: "#FFFFFF",
                 border: `1px solid ${BORDER}`,
-                borderRadius: 3,
+                borderRadius: RADIUS,
                 padding: "20px 20px 8px",
                 marginBottom: 24,
-                boxShadow: "0 1px 3px rgba(28,32,71,0.05)",
+                boxShadow: "0 4px 20px rgba(28,32,71,0.06)",
               }}
             >
               <div
@@ -609,7 +611,7 @@ export default function Dashboard() {
                         background: TEAL,
                         color: NAVY,
                         border: `1px solid ${TEAL}`,
-                        borderRadius: 2,
+                        borderRadius: RADIUS_PILL,
                         padding: "5px 12px",
                         fontSize: 12.5,
                         cursor: revenueLoader.status === "loading" ? "wait" : "pointer",
@@ -625,7 +627,7 @@ export default function Dashboard() {
                       background: "transparent",
                       color: NAVY,
                       border: `1px solid ${BORDER}`,
-                      borderRadius: 2,
+                      borderRadius: RADIUS_PILL,
                       padding: "5px 12px",
                       fontSize: 12.5,
                       cursor: "pointer",
@@ -660,9 +662,9 @@ export default function Dashboard() {
                         background: "#FFFFFF",
                         border: `1px solid ${BORDER}`,
                         borderTop: `3px solid ${TEAL}`,
-                        borderRadius: 3,
+                        borderRadius: RADIUS,
                         padding: "16px 18px",
-                        boxShadow: "0 1px 3px rgba(28,32,71,0.05)",
+                        boxShadow: "0 4px 20px rgba(28,32,71,0.06)",
                       }}
                     >
                       <div style={{ fontSize: 12.5, color: "#6B7099", marginBottom: 8, fontWeight: 600 }}>
@@ -694,7 +696,7 @@ export default function Dashboard() {
                             background: revenueRange === r.id ? TEAL : "transparent",
                             color: NAVY,
                             border: `1px solid ${revenueRange === r.id ? TEAL : BORDER}`,
-                            borderRadius: 2,
+                            borderRadius: RADIUS_PILL,
                             padding: "4px 10px",
                             fontSize: 11.5,
                             cursor: "pointer",
@@ -712,7 +714,7 @@ export default function Dashboard() {
                       <XAxis dataKey="label" tick={{ fill: "#8B90AD", fontSize: 10.5 }} />
                       <YAxis tick={{ fill: "#8B90AD", fontSize: 11 }} tickFormatter={formatShekelShort} />
                       <Tooltip
-                        contentStyle={{ background: "#FFFFFF", border: `1px solid ${BORDER}`, borderRadius: 6, fontSize: 12 }}
+                        contentStyle={{ background: "#FFFFFF", border: `1px solid ${BORDER}`, borderRadius: RADIUS, fontSize: 12 }}
                         labelStyle={{ color: NAVY, fontWeight: 700 }}
                         formatter={(v) => formatShekel(v)}
                       />
@@ -729,7 +731,7 @@ export default function Dashboard() {
                       <XAxis dataKey="label" tick={{ fill: "#8B90AD", fontSize: 11 }} />
                       <YAxis tick={{ fill: "#8B90AD", fontSize: 11 }} tickFormatter={formatShekelShort} />
                       <Tooltip
-                        contentStyle={{ background: "#FFFFFF", border: `1px solid ${BORDER}`, borderRadius: 6, fontSize: 12 }}
+                        contentStyle={{ background: "#FFFFFF", border: `1px solid ${BORDER}`, borderRadius: RADIUS, fontSize: 12 }}
                         labelStyle={{ color: NAVY, fontWeight: 700 }}
                         formatter={(v) => formatShekel(v)}
                       />
@@ -753,10 +755,10 @@ export default function Dashboard() {
               style={{
                 background: "#FFFFFF",
                 border: `1px solid ${BORDER}`,
-                borderRadius: 3,
+                borderRadius: RADIUS,
                 padding: "20px 20px 8px",
                 marginBottom: 24,
-                boxShadow: "0 1px 3px rgba(28,32,71,0.05)",
+                boxShadow: "0 4px 20px rgba(28,32,71,0.06)",
               }}
             >
               <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4, color: NAVY }}>
@@ -771,7 +773,7 @@ export default function Dashboard() {
                   <XAxis dataKey="week" tick={{ fill: "#8B90AD", fontSize: 11 }} />
                   <YAxis tick={{ fill: "#8B90AD", fontSize: 11 }} />
                   <Tooltip
-                    contentStyle={{ background: "#FFFFFF", border: `1px solid ${BORDER}`, borderRadius: 6, fontSize: 12 }}
+                    contentStyle={{ background: "#FFFFFF", border: `1px solid ${BORDER}`, borderRadius: RADIUS, fontSize: 12 }}
                     labelStyle={{ color: NAVY, fontWeight: 700 }}
                   />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
@@ -789,10 +791,10 @@ export default function Dashboard() {
               style={{
                 background: "#FFFFFF",
                 border: `1px solid ${BORDER}`,
-                borderRadius: 3,
+                borderRadius: RADIUS,
                 padding: "20px 20px 8px",
                 marginBottom: 24,
-                boxShadow: "0 1px 3px rgba(28,32,71,0.05)",
+                boxShadow: "0 4px 20px rgba(28,32,71,0.06)",
               }}
             >
               <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4, color: NAVY }}>
@@ -807,7 +809,7 @@ export default function Dashboard() {
                   <XAxis dataKey="month" tick={{ fill: "#8B90AD", fontSize: 12 }} />
                   <YAxis tick={{ fill: "#8B90AD", fontSize: 11 }} allowDecimals={false} />
                   <Tooltip
-                    contentStyle={{ background: "#FFFFFF", border: `1px solid ${BORDER}`, borderRadius: 6, fontSize: 12 }}
+                    contentStyle={{ background: "#FFFFFF", border: `1px solid ${BORDER}`, borderRadius: RADIUS, fontSize: 12 }}
                     labelStyle={{ color: NAVY, fontWeight: 700 }}
                   />
                   <Bar dataKey="total" name="הזמנות סגורות" fill={TEAL} radius={[3, 3, 0, 0]}>
@@ -824,10 +826,10 @@ export default function Dashboard() {
                 style={{
                   background: "#FFFFFF",
                   border: `1px solid ${BORDER}`,
-                  borderRadius: 3,
+                  borderRadius: RADIUS,
                   padding: "20px 20px 8px",
                   marginBottom: 24,
-                  boxShadow: "0 1px 3px rgba(28,32,71,0.05)",
+                  boxShadow: "0 4px 20px rgba(28,32,71,0.06)",
                 }}
               >
                 <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4, color: NAVY }}>
@@ -842,7 +844,7 @@ export default function Dashboard() {
                     <XAxis dataKey="week" tick={{ fill: "#8B90AD", fontSize: 11 }} />
                     <YAxis tick={{ fill: "#8B90AD", fontSize: 11 }} unit="%" />
                     <Tooltip
-                      contentStyle={{ background: "#FFFFFF", border: `1px solid ${BORDER}`, borderRadius: 6, fontSize: 12 }}
+                      contentStyle={{ background: "#FFFFFF", border: `1px solid ${BORDER}`, borderRadius: RADIUS, fontSize: 12 }}
                       labelStyle={{ color: NAVY, fontWeight: 700 }}
                       formatter={(v) => `${v}%`}
                     />
@@ -860,10 +862,10 @@ export default function Dashboard() {
               style={{
                 background: "#FFFFFF",
                 border: `1px solid ${BORDER}`,
-                borderRadius: 3,
+                borderRadius: RADIUS,
                 padding: 20,
                 marginBottom: 12,
-                boxShadow: "0 1px 3px rgba(28,32,71,0.05)",
+                boxShadow: "0 4px 20px rgba(28,32,71,0.06)",
               }}
             >
               <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14, color: NAVY }}>

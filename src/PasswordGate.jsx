@@ -10,6 +10,8 @@ const NAVY = "#1C2047";
 const TEAL = "#51DFD7";
 const BORDER = "#E7E9EF";
 const BG = "#F7F8FB";
+const RADIUS = 16;
+const RADIUS_PILL = 999;
 
 async function sha256Hex(text) {
   const bytes = new TextEncoder().encode(text);
@@ -47,7 +49,7 @@ export default function PasswordGate({ children }) {
         alignItems: "center",
         justifyContent: "center",
         background: BG,
-        fontFamily: "'Open Sans Hebrew', 'Open Sans', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif",
+        fontFamily: "'Rubik', 'Open Sans Hebrew', 'Open Sans', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif",
       }}
     >
       <form
@@ -56,10 +58,10 @@ export default function PasswordGate({ children }) {
           background: "#FFFFFF",
           border: `1px solid ${BORDER}`,
           borderTop: `3px solid ${TEAL}`,
-          borderRadius: 4,
+          borderRadius: RADIUS,
           padding: 32,
           width: 320,
-          boxShadow: "0 2px 12px rgba(28,32,71,0.08)",
+          boxShadow: "0 8px 30px rgba(28,32,71,0.10)",
         }}
       >
         <div style={{ fontSize: 16, fontWeight: 700, color: NAVY, marginBottom: 4 }}>גישה מוגבלת</div>
@@ -76,8 +78,8 @@ export default function PasswordGate({ children }) {
             width: "100%",
             boxSizing: "border-box",
             border: `1px solid ${error ? "#D5504A" : BORDER}`,
-            borderRadius: 3,
-            padding: "9px 10px",
+            borderRadius: RADIUS,
+            padding: "9px 14px",
             fontSize: 14,
             marginBottom: 10,
           }}
@@ -91,8 +93,8 @@ export default function PasswordGate({ children }) {
             background: TEAL,
             color: NAVY,
             border: "none",
-            borderRadius: 3,
-            padding: "10px 0",
+            borderRadius: RADIUS_PILL,
+            padding: "11px 0",
             fontWeight: 700,
             fontSize: 14,
             cursor: checking ? "wait" : "pointer",
