@@ -24,6 +24,10 @@ import logo from "./assets/rideeazy-logo.png";
 import seedData from "./seedData.json";
 
 const CACHE_KEY = "rideeazy-dashboard-cache";
+// Bump this whenever the cached shape changes (e.g. adding the `days`
+// field) so old browser caches get discarded instead of silently supplying
+// missing/stale fields.
+const CACHE_VERSION = 2;
 
 // Palette pulled directly from app.rideeazy.co.il/landing-page
 const NAVY = "#1C2047";
@@ -84,7 +88,7 @@ export default function Dashboard() {
     setErrorMsg(null);
     localStorage.setItem(
       CACHE_KEY,
-      JSON.stringify({ weeks: parsedWeeks, days: parsedDays, fileName: name, lastLoaded: now })
+      JSON.stringify({ version: CACHE_VERSION, weeks: parsedWeeks, days: parsedDays, fileName: name, lastLoaded: now })
     );
   }, []);
 
@@ -168,10 +172,17 @@ export default function Dashboard() {
     if (cached) {
       try {
         const parsed = JSON.parse(cached);
-        setWeeks(parsed.weeks || []);
-        setDays(parsed.days || []);
-        setFileName(parsed.fileName || null);
-        setLastLoaded(parsed.lastLoaded || null);
+        if (parsed.version === CACHE_VERSION) {
+          setWeeks(parsed.weeks || []);
+          setDays(parsed.days || []);
+          setFileName(parsed.fileName || null);
+          setLastLoaded(parsed.lastLoaded || null);
+        } else {
+          // Cache predates this shape (e.g. missing `days`) — drop it and
+          // keep the bundled seed data instead of silently applying a
+          // partial/stale object over it.
+          localStorage.removeItem(CACHE_KEY);
+        }
       } catch {
         // ignore corrupt cache
       }
