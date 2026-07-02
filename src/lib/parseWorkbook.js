@@ -25,8 +25,11 @@ const METRIC_ALIASES = {
   "הצעות מחיר שנתנו עי המערכת": "הצעות מחיר",
   "תפוקת שירות לקוחות - טיפול יומי": "תפוקת שירות לקוחות",
   "מכרזים נפתחו": "מכרזים נפתחו",
+  // "closed orders" combines both sources: closed via a tender, and closed
+  // directly through the system without one.
   "הזמנות ממכרזים": "הזמנות ממכרזים",
   "סגירות ממכרזים": "הזמנות ממכרזים",
+  "סגירות מהמערכת": "הזמנות ממכרזים",
 };
 
 const RATE_ALIASES = {
@@ -162,7 +165,11 @@ export function parseWorkbook(workbook) {
 
       const key = label.trim();
       if (METRIC_ALIASES[key]) {
-        current.metrics[METRIC_ALIASES[key]] = sumDayValues(row);
+        // Accumulate rather than overwrite: some canonical metrics (like
+        // closed orders) are split across multiple source rows within the
+        // same week block (e.g. closed via tender + closed via system).
+        const canonical = METRIC_ALIASES[key];
+        current.metrics[canonical] = (current.metrics[canonical] || 0) + sumDayValues(row);
       } else if (RATE_ALIASES[key]) {
         const avg = averagePercent(row);
         if (avg !== null) current.rates[RATE_ALIASES[key]] = avg;
