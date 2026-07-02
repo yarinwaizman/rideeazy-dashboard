@@ -24,4 +24,17 @@
   .print-table-wrap {
     overflow: visible !important;
   }
+
+  /* Safety net: Recharts sizes each chart's <svg> in JS via ResizeObserver,
+     which doesn't always re-fire in time for the print page's dimensions.
+     Capping width here forces any stale/oversized chart to shrink to fit
+     instead of overflowing past the page edge. */
+  .recharts-responsive-container,
+  .recharts-wrapper {
+    max-width: 100% !important;
+  }
+  .recharts-surface {
+    max-width: 100% !important;
+    height: auto !important;
+  }
 }

@@ -217,6 +217,25 @@ export default function Dashboard() {
 
   const exportPdf = () => window.print();
 
+  // Recharts' ResponsiveContainer sizes each chart via ResizeObserver on its
+  // wrapping div, measured against the on-screen layout. It doesn't reliably
+  // re-measure when the browser switches to the print page's (narrower,
+  // landscape) dimensions, so charts can overflow/get cut off in the PDF
+  // unless something nudges a re-measurement right as printing starts.
+  useEffect(() => {
+    const remeasure = () => window.dispatchEvent(new Event("resize"));
+    const mql = window.matchMedia("print");
+    const onMqlChange = (e) => {
+      if (e.matches) remeasure();
+    };
+    mql.addEventListener?.("change", onMqlChange);
+    window.addEventListener("beforeprint", remeasure);
+    return () => {
+      mql.removeEventListener?.("change", onMqlChange);
+      window.removeEventListener("beforeprint", remeasure);
+    };
+  }, []);
+
   return (
     <div
       dir="rtl"

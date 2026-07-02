@@ -41,7 +41,7 @@ export function useLoadableFile({ handleKey, cacheKey, cacheVersion, parse, acce
   const pickFile = useCallback(async () => {
     if (supportsFileSystemAccess) {
       try {
-        const [handle] = await window.showOpenFilePicker({ types: [{ accept }] });
+        const [handle] = await window.showOpenFilePicker({ types: [accept] });
         await saveFileHandle(handleKey, handle);
         const file = await handle.getFile();
         await applyFile(file);
