@@ -87,6 +87,53 @@ function isAllZero(metrics) {
   return Object.values(metrics).every((v) => !v);
 }
 
+// Week labels are hand-typed and drift in format: "01-03.01.26",
+// "26.04-02.05.26", "31.05-06..6.26", "14/6 - 19/6", "28\6 - 4\7",
+// "05-11.07.2026". This normalizes separators so day/month/year can be
+// pulled out of the (start, end) parts regardless of which style was used.
+function normalizeWeekLabel(raw) {
+  return raw
+    .replace(/[/\\]/g, ".")
+    .replace(/\.{2,}/g, ".")
+    .replace(/–/g, "-")
+    .replace(/\s*-\s*/g, "-")
+    .trim();
+}
+
+function parseDatePart(str) {
+  const nums = str
+    .split(".")
+    .map((n) => parseInt(n, 10))
+    .filter((n) => !Number.isNaN(n));
+  if (nums.length === 0) return null;
+  const [day, month, year] = nums;
+  return { day, month, year };
+}
+
+function resolveYear(y) {
+  if (y === undefined) return undefined;
+  return y < 100 ? 2000 + y : y;
+}
+
+// Best-effort (start, end) Date range for a week label. Returns null if the
+// format is unrecognizable, so callers can fail open rather than drop data.
+function parseWeekRange(label) {
+  const parts = normalizeWeekLabel(label).split("-");
+  if (parts.length !== 2) return null;
+  const end = parseDatePart(parts[1]);
+  const start = parseDatePart(parts[0]);
+  if (!end || !start || !end.month || !end.day) return null;
+
+  const endYear = resolveYear(end.year) ?? new Date().getFullYear();
+  const startMonth = start.month ?? end.month;
+  const startYear = resolveYear(start.year) ?? endYear;
+
+  const startDate = new Date(startYear, startMonth - 1, start.day);
+  const endDate = new Date(endYear, end.month - 1, end.day, 23, 59, 59);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return null;
+  return { start: startDate, end: endDate };
+}
+
 export function parseWorkbook(workbook) {
   const weeks = [];
 
@@ -124,10 +171,19 @@ export function parseWorkbook(workbook) {
     if (current) weeks.push(current);
   }
 
+  // Sheets sometimes have next week's block pre-created as an empty
+  // placeholder ahead of time. Drop any week that hasn't started yet so it
+  // doesn't get mistaken for "latest" or show up as a fake dip in charts.
+  const now = new Date();
+  const started = weeks.filter((w) => {
+    const range = parseWeekRange(w.week);
+    return !range || range.start <= now; // fail open if the label doesn't parse
+  });
+
   // Stale template blocks (leftover, never filled in) show up as all-zero
-  // weeks anywhere but the end. The most recent week is kept even if it's
-  // all zero, since that's just an in-progress week with no data yet.
-  return weeks.filter((w, i) => i === weeks.length - 1 || !isAllZero(w.metrics));
+  // weeks anywhere but the end. The most recent started week is kept even
+  // if it's all zero, since that just means it hasn't been filled in yet.
+  return started.filter((w, i) => i === started.length - 1 || !isAllZero(w.metrics));
 }
 
 export function monthlyTotals(weeks, metricKey = "הזמנות ממכרזים") {
