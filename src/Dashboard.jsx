@@ -14,20 +14,30 @@ import {
   LabelList,
 } from "recharts";
 import { parseWorkbook, monthlyTotals, daysInRange, sumDayMetrics, METRIC_LABELS } from "./lib/parseWorkbook.js";
-import {
-  supportsFileSystemAccess,
-  saveFileHandle,
-  loadFileHandle,
-  verifyPermission,
-} from "./lib/fileHandle.js";
+import { parseRevenueCsv, weeklyRevenue, monthlyRevenue, mergeRevenueIntoDays } from "./lib/parseRevenue.js";
+import { supportsFileSystemAccess, EXCEL_HANDLE_KEY, REVENUE_HANDLE_KEY } from "./lib/fileHandle.js";
+import { useLoadableFile } from "./lib/useLoadableFile.js";
 import logo from "./assets/rideeazy-logo.png";
 import seedData from "./seedData.json";
 
-const CACHE_KEY = "rideeazy-dashboard-cache";
-// Bump this whenever the cached shape changes (e.g. adding the `days`
-// field) so old browser caches get discarded instead of silently supplying
-// missing/stale fields.
-const CACHE_VERSION = 2;
+const EXCEL_CACHE_KEY = "rideeazy-dashboard-cache";
+const REVENUE_CACHE_KEY = "rideeazy-revenue-cache";
+// Bump whenever a loader's cached shape changes so old browser caches get
+// discarded instead of silently supplying missing/stale fields.
+const EXCEL_CACHE_VERSION = 3;
+const REVENUE_CACHE_VERSION = 1;
+const REVENUE_KEY = "הכנסות";
+
+async function parseExcelFile(file) {
+  const buf = await file.arrayBuffer();
+  const workbook = XLSX.read(buf, { type: "array", cellDates: true });
+  return parseWorkbook(workbook);
+}
+
+async function parseRevenueFile(file) {
+  const text = await file.text();
+  return parseRevenueCsv(text);
+}
 
 // Palette pulled directly from app.rideeazy.co.il/landing-page
 const NAVY = "#1C2047";
@@ -58,6 +68,21 @@ function formatShortDate(iso) {
   return `${d}/${m}`;
 }
 
+const shekelFormatter = new Intl.NumberFormat("he-IL", {
+  style: "currency",
+  currency: "ILS",
+  maximumFractionDigits: 0,
+});
+
+function formatShekel(v) {
+  return shekelFormatter.format(v || 0);
+}
+
+function formatShekelShort(v) {
+  if (Math.abs(v) >= 1000) return `${(v / 1000).toFixed(1)}K ₪`;
+  return `${Math.round(v)} ₪`;
+}
+
 function formatTimestamp(iso) {
   if (!iso) return null;
   return new Date(iso).toLocaleString("he-IL", {
@@ -68,135 +93,43 @@ function formatTimestamp(iso) {
   });
 }
 
+const EXCEL_ACCEPT = {
+  description: "Excel",
+  accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] },
+};
+const CSV_ACCEPT = { description: "CSV", accept: { "text/csv": [".csv"] } };
+
 export default function Dashboard() {
   const [range, setRange] = useState("all"); // 'all' | '8w' | '4w'
-  const [weeks, setWeeks] = useState(seedData.weeks);
-  const [days, setDays] = useState(seedData.days || []);
-  const [fileName, setFileName] = useState(seedData.fileName);
-  const [lastLoaded, setLastLoaded] = useState(seedData.lastLoaded);
-  const [status, setStatus] = useState("idle"); // idle | loading | error
-  const [errorMsg, setErrorMsg] = useState(null);
-  const fileInputRef = useRef(null);
 
-  const applyData = useCallback((parsedWeeks, parsedDays, name) => {
-    setWeeks(parsedWeeks);
-    setDays(parsedDays);
-    setFileName(name);
-    const now = new Date().toISOString();
-    setLastLoaded(now);
-    setStatus("idle");
-    setErrorMsg(null);
-    localStorage.setItem(
-      CACHE_KEY,
-      JSON.stringify({ version: CACHE_VERSION, weeks: parsedWeeks, days: parsedDays, fileName: name, lastLoaded: now })
-    );
-  }, []);
-
-  const parseAndApply = useCallback(
-    async (file) => {
-      setStatus("loading");
-      try {
-        const buf = await file.arrayBuffer();
-        const workbook = XLSX.read(buf, { type: "array", cellDates: true });
-        const { weeks: parsedWeeks, days: parsedDays } = parseWorkbook(workbook);
-        applyData(parsedWeeks, parsedDays, file.name);
-      } catch (err) {
-        setStatus("error");
-        setErrorMsg(err.message || "שגיאה בקריאת הקובץ");
-      }
+  const excelLoader = useLoadableFile({
+    handleKey: EXCEL_HANDLE_KEY,
+    cacheKey: EXCEL_CACHE_KEY,
+    cacheVersion: EXCEL_CACHE_VERSION,
+    parse: parseExcelFile,
+    accept: EXCEL_ACCEPT,
+    initial: {
+      data: { weeks: seedData.weeks, days: seedData.days || [] },
+      fileName: seedData.fileName,
+      lastLoaded: seedData.lastLoaded,
     },
-    [applyData]
-  );
+  });
+  const weeks = excelLoader.data.weeks;
+  const days = excelLoader.data.days;
 
-  const pickFile = useCallback(async () => {
-    if (supportsFileSystemAccess) {
-      try {
-        const [handle] = await window.showOpenFilePicker({
-          types: [
-            {
-              description: "Excel",
-              accept: {
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
-              },
-            },
-          ],
-        });
-        await saveFileHandle(handle);
-        const file = await handle.getFile();
-        await parseAndApply(file);
-      } catch (err) {
-        if (err.name !== "AbortError") {
-          setStatus("error");
-          setErrorMsg(err.message || "שגיאה בבחירת הקובץ");
-        }
-      }
-    } else {
-      fileInputRef.current?.click();
-    }
-  }, [parseAndApply]);
-
-  const refresh = useCallback(async () => {
-    if (supportsFileSystemAccess) {
-      const handle = await loadFileHandle();
-      if (handle) {
-        setStatus("loading");
-        try {
-          const ok = await verifyPermission(handle);
-          if (!ok) throw new Error("אין הרשאה לגשת לקובץ — יש לבחור אותו מחדש");
-          const file = await handle.getFile();
-          await parseAndApply(file);
-        } catch (err) {
-          setStatus("error");
-          setErrorMsg(err.message || "שגיאה ברענון הקובץ");
-        }
-        return;
-      }
-    }
-    pickFile();
-  }, [parseAndApply, pickFile]);
-
-  const onFileInputChange = useCallback(
-    (e) => {
-      const file = e.target.files?.[0];
-      if (file) parseAndApply(file);
-      e.target.value = "";
+  const revenueLoader = useLoadableFile({
+    handleKey: REVENUE_HANDLE_KEY,
+    cacheKey: REVENUE_CACHE_KEY,
+    cacheVersion: REVENUE_CACHE_VERSION,
+    parse: parseRevenueFile,
+    accept: CSV_ACCEPT,
+    initial: {
+      data: seedData.revenueDays || [],
+      fileName: seedData.revenueFileName,
+      lastLoaded: seedData.revenueLastLoaded,
     },
-    [parseAndApply]
-  );
-
-  // On mount: paint instantly from cache, then try a silent refresh from the
-  // remembered file handle (if the browser supports it and permission is
-  // still granted).
-  useEffect(() => {
-    const cached = localStorage.getItem(CACHE_KEY);
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        if (parsed.version === CACHE_VERSION) {
-          setWeeks(parsed.weeks || []);
-          setDays(parsed.days || []);
-          setFileName(parsed.fileName || null);
-          setLastLoaded(parsed.lastLoaded || null);
-        } else {
-          // Cache predates this shape (e.g. missing `days`) — drop it and
-          // keep the bundled seed data instead of silently applying a
-          // partial/stale object over it.
-          localStorage.removeItem(CACHE_KEY);
-        }
-      } catch {
-        // ignore corrupt cache
-      }
-    }
-    if (supportsFileSystemAccess) {
-      loadFileHandle().then(async (handle) => {
-        if (!handle) return;
-        const ok = await verifyPermission(handle).catch(() => false);
-        if (!ok) return;
-        const file = await handle.getFile();
-        parseAndApply(file);
-      });
-    }
-  }, [parseAndApply]);
+  });
+  const revenueDays = revenueLoader.data;
 
   const data = useMemo(() => {
     if (range === "4w") return weeks.slice(-4);
@@ -236,6 +169,24 @@ export default function Dashboard() {
 
   const allMetricKeys = Object.keys(METRIC_LABELS);
 
+  // Revenue comes from a separate CSV covering its own date range, so it's
+  // folded into the daily records (matched by date) rather than forced into
+  // the Excel's own week blocks.
+  const mergedDays = useMemo(() => mergeRevenueIntoDays(days, revenueDays), [days, revenueDays]);
+  const dailyMetricKeys = revenueDays.length > 0 ? [...allMetricKeys, REVENUE_KEY] : allMetricKeys;
+  const dailyMetricLabels = { ...METRIC_LABELS, [REVENUE_KEY]: "הכנסות" };
+  const dailyKpis = revenueDays.length > 0 ? [...kpis, { key: REVENUE_KEY, label: "הכנסות" }] : kpis;
+
+  const weeklyRevenueData = useMemo(() => weeklyRevenue(revenueDays), [revenueDays]);
+  const monthlyRevenueData = useMemo(() => monthlyRevenue(revenueDays), [revenueDays]);
+  const [revenueRange, setRevenueRange] = useState("12w"); // '12w' | 'all'
+  const revenueChartData = useMemo(() => {
+    if (revenueRange === "12w") return weeklyRevenueData.slice(-12);
+    return weeklyRevenueData;
+  }, [weeklyRevenueData, revenueRange]);
+  const latestRevenueWeek = weeklyRevenueData[weeklyRevenueData.length - 1];
+  const prevRevenueWeek = weeklyRevenueData[weeklyRevenueData.length - 2];
+
   const [dailyFrom, setDailyFrom] = useState("");
   const [dailyTo, setDailyTo] = useState("");
 
@@ -243,7 +194,7 @@ export default function Dashboard() {
     if (!dailyFrom) return null;
     const from = dailyFrom;
     const to = dailyTo && dailyTo >= from ? dailyTo : dailyFrom;
-    const matched = daysInRange(days, from, to);
+    const matched = daysInRange(mergedDays, from, to);
     const summary = sumDayMetrics(matched);
 
     const requestedDates = [];
@@ -261,7 +212,7 @@ export default function Dashboard() {
     );
 
     return { from, to, matched, summary, missingDates };
-  }, [days, dailyFrom, dailyTo]);
+  }, [mergedDays, dailyFrom, dailyTo]);
 
   return (
     <div
@@ -276,11 +227,18 @@ export default function Dashboard() {
       }}
     >
       <input
-        ref={fileInputRef}
+        ref={excelLoader.fileInputRef}
         type="file"
         accept=".xlsx"
         style={{ display: "none" }}
-        onChange={onFileInputChange}
+        onChange={excelLoader.onFileInputChange}
+      />
+      <input
+        ref={revenueLoader.fileInputRef}
+        type="file"
+        accept=".csv"
+        style={{ display: "none" }}
+        onChange={revenueLoader.onFileInputChange}
       />
 
       {/* Header */}
@@ -305,14 +263,14 @@ export default function Dashboard() {
             {weeks.length > 0
               ? `${weeks.length} שבועות · עודכן עד ${latest.week}`
               : "טרם נטענו נתונים"}
-            {fileName ? ` · ${fileName}` : ""}
-            {lastLoaded ? ` · נטען ${formatTimestamp(lastLoaded)}` : ""}
+            {excelLoader.fileName ? ` · ${excelLoader.fileName}` : ""}
+            {excelLoader.lastLoaded ? ` · נטען ${formatTimestamp(excelLoader.lastLoaded)}` : ""}
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button
-            onClick={refresh}
-            disabled={status === "loading"}
+            onClick={excelLoader.refresh}
+            disabled={excelLoader.status === "loading"}
             style={{
               background: TEAL,
               color: NAVY,
@@ -320,14 +278,14 @@ export default function Dashboard() {
               borderRadius: 2,
               padding: "6px 14px",
               fontSize: 13,
-              cursor: status === "loading" ? "wait" : "pointer",
+              cursor: excelLoader.status === "loading" ? "wait" : "pointer",
               fontWeight: 700,
             }}
           >
-            {status === "loading" ? "טוען…" : "רענן נתונים"}
+            {excelLoader.status === "loading" ? "טוען…" : "רענן נתונים"}
           </button>
           <button
-            onClick={pickFile}
+            onClick={excelLoader.pickFile}
             style={{
               background: "transparent",
               color: "#D8DAEA",
@@ -369,13 +327,13 @@ export default function Dashboard() {
 
       {!supportsFileSystemAccess && (
         <div style={{ background: "#FFF7E6", color: "#8A6116", fontSize: 12.5, padding: "8px 28px" }}>
-          הדפדפן שלך לא תומך בזכירת קובץ אוטומטית — בכל "רענן נתונים" תתבקש לבחור מחדש את קובץ האקסל.
+          הדפדפן שלך לא תומך בזכירת קבצים אוטומטית — בכל רענון תתבקשו לבחור מחדש את הקובץ (אקסל או CSV).
           (נתמך ב-Chrome / Edge)
         </div>
       )}
-      {status === "error" && (
+      {excelLoader.status === "error" && (
         <div style={{ background: "#FDECEC", color: "#B23A34", fontSize: 12.5, padding: "8px 28px" }}>
-          {errorMsg}
+          {excelLoader.errorMsg}
         </div>
       )}
 
@@ -509,7 +467,7 @@ export default function Dashboard() {
                       marginBottom: 16,
                     }}
                   >
-                    {kpis.map((k) => (
+                    {dailyKpis.map((k) => (
                       <div
                         key={k.key}
                         style={{
@@ -523,7 +481,9 @@ export default function Dashboard() {
                           {k.label}
                         </div>
                         <div style={{ fontSize: 20, fontWeight: 700, color: NAVY }}>
-                          {dailyResult.summary[k.key] || 0}
+                          {k.key === REVENUE_KEY
+                            ? formatShekel(dailyResult.summary[k.key] || 0)
+                            : dailyResult.summary[k.key] || 0}
                         </div>
                       </div>
                     ))}
@@ -541,9 +501,9 @@ export default function Dashboard() {
                       <thead>
                         <tr>
                           <th style={thStyle}>תאריך</th>
-                          {allMetricKeys.map((k) => (
+                          {dailyMetricKeys.map((k) => (
                             <th key={k} style={thStyle}>
-                              {METRIC_LABELS[k]}
+                              {dailyMetricLabels[k]}
                             </th>
                           ))}
                         </tr>
@@ -554,9 +514,11 @@ export default function Dashboard() {
                             <td style={{ ...tdStyle, fontWeight: 700, color: NAVY }}>
                               {r.label} · {r.date === r.endDate ? formatShortDate(r.date) : `${formatShortDate(r.date)}–${formatShortDate(r.endDate)}`}
                             </td>
-                            {allMetricKeys.map((k) => (
+                            {dailyMetricKeys.map((k) => (
                               <td key={k} style={tdStyle}>
-                                {r.metrics[k] ?? "–"}
+                                {k === REVENUE_KEY && r.metrics[k] !== undefined
+                                  ? formatShekel(r.metrics[k])
+                                  : r.metrics[k] ?? "–"}
                               </td>
                             ))}
                           </tr>
@@ -564,6 +526,182 @@ export default function Dashboard() {
                       </tbody>
                     </table>
                   </div>
+                </>
+              )}
+            </div>
+
+            {/* Revenue */}
+            <div
+              style={{
+                background: "#FFFFFF",
+                border: `1px solid ${BORDER}`,
+                borderRadius: 3,
+                padding: "20px 20px 8px",
+                marginBottom: 24,
+                boxShadow: "0 1px 3px rgba(28,32,71,0.05)",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "flex-start",
+                  flexWrap: "wrap",
+                  gap: 12,
+                  marginBottom: 4,
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: NAVY }}>הכנסות</div>
+                  <div style={{ fontSize: 12, color: "#8B90AD", marginTop: 2 }}>
+                    מתוך דוח ריכוז מסמכים · "חשבונית מס קבלה" בלבד
+                    {revenueLoader.fileName ? ` · ${revenueLoader.fileName}` : ""}
+                    {revenueLoader.lastLoaded ? ` · נטען ${formatTimestamp(revenueLoader.lastLoaded)}` : ""}
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {revenueDays.length > 0 && (
+                    <button
+                      onClick={revenueLoader.refresh}
+                      disabled={revenueLoader.status === "loading"}
+                      style={{
+                        background: TEAL,
+                        color: NAVY,
+                        border: `1px solid ${TEAL}`,
+                        borderRadius: 2,
+                        padding: "5px 12px",
+                        fontSize: 12.5,
+                        cursor: revenueLoader.status === "loading" ? "wait" : "pointer",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {revenueLoader.status === "loading" ? "טוען…" : "רענן הכנסות"}
+                    </button>
+                  )}
+                  <button
+                    onClick={revenueLoader.pickFile}
+                    style={{
+                      background: "transparent",
+                      color: NAVY,
+                      border: `1px solid ${BORDER}`,
+                      borderRadius: 2,
+                      padding: "5px 12px",
+                      fontSize: 12.5,
+                      cursor: "pointer",
+                      fontWeight: 700,
+                    }}
+                  >
+                    בחר קובץ הכנסות (CSV)…
+                  </button>
+                </div>
+              </div>
+
+              {revenueLoader.status === "error" && (
+                <div style={{ fontSize: 12.5, color: "#B23A34", marginBottom: 12 }}>{revenueLoader.errorMsg}</div>
+              )}
+
+              {revenueDays.length === 0 ? (
+                <div style={{ fontSize: 12.5, color: "#9498B5", padding: "12px 0" }}>
+                  טרם נטען קובץ הכנסות. לחצו "בחר קובץ הכנסות (CSV)…" כדי לטעון את דוח ריכוז המסמכים.
+                </div>
+              ) : (
+                <>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+                      gap: 14,
+                      margin: "14px 0 20px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        background: "#FFFFFF",
+                        border: `1px solid ${BORDER}`,
+                        borderTop: `3px solid ${TEAL}`,
+                        borderRadius: 3,
+                        padding: "16px 18px",
+                        boxShadow: "0 1px 3px rgba(28,32,71,0.05)",
+                      }}
+                    >
+                      <div style={{ fontSize: 12.5, color: "#6B7099", marginBottom: 8, fontWeight: 600 }}>
+                        הכנסות · שבוע אחרון ({latestRevenueWeek?.label})
+                      </div>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+                        <span style={{ fontSize: 26, fontWeight: 700, color: NAVY }}>
+                          {formatShekel(latestRevenueWeek?.revenue)}
+                        </span>
+                        <Delta value={pctChange(latestRevenueWeek?.revenue, prevRevenueWeek?.revenue)} />
+                      </div>
+                      <div style={{ fontSize: 11, color: "#9498B5", marginTop: 4 }}>
+                        שבוע קודם: {formatShekel(prevRevenueWeek?.revenue)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: NAVY }}>הכנסות שבועיות</div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {[
+                        { id: "12w", label: "12 שבועות אחרונים" },
+                        { id: "all", label: "הכל" },
+                      ].map((r) => (
+                        <button
+                          key={r.id}
+                          onClick={() => setRevenueRange(r.id)}
+                          style={{
+                            background: revenueRange === r.id ? TEAL : "transparent",
+                            color: NAVY,
+                            border: `1px solid ${revenueRange === r.id ? TEAL : BORDER}`,
+                            borderRadius: 2,
+                            padding: "4px 10px",
+                            fontSize: 11.5,
+                            cursor: "pointer",
+                            fontWeight: 700,
+                          }}
+                        >
+                          {r.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <ComposedChart data={revenueChartData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
+                      <XAxis dataKey="label" tick={{ fill: "#8B90AD", fontSize: 10.5 }} />
+                      <YAxis tick={{ fill: "#8B90AD", fontSize: 11 }} tickFormatter={formatShekelShort} />
+                      <Tooltip
+                        contentStyle={{ background: "#FFFFFF", border: `1px solid ${BORDER}`, borderRadius: 6, fontSize: 12 }}
+                        labelStyle={{ color: NAVY, fontWeight: 700 }}
+                        formatter={(v) => formatShekel(v)}
+                      />
+                      <Bar dataKey="revenue" name="הכנסות" fill={TEAL} radius={[3, 3, 0, 0]} />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+
+                  <div style={{ fontSize: 13, fontWeight: 700, color: NAVY, margin: "20px 0 4px" }}>
+                    הכנסות חודשיות
+                  </div>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={monthlyRevenueData} margin={{ top: 20, right: 10, left: -10, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
+                      <XAxis dataKey="label" tick={{ fill: "#8B90AD", fontSize: 11 }} />
+                      <YAxis tick={{ fill: "#8B90AD", fontSize: 11 }} tickFormatter={formatShekelShort} />
+                      <Tooltip
+                        contentStyle={{ background: "#FFFFFF", border: `1px solid ${BORDER}`, borderRadius: 6, fontSize: 12 }}
+                        labelStyle={{ color: NAVY, fontWeight: 700 }}
+                        formatter={(v) => formatShekel(v)}
+                      />
+                      <Bar dataKey="revenue" name="הכנסות" fill={NAVY} radius={[3, 3, 0, 0]}>
+                        <LabelList
+                          dataKey="revenue"
+                          position="top"
+                          formatter={formatShekelShort}
+                          style={{ fill: NAVY, fontSize: 11, fontWeight: 700 }}
+                        />
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
                 </>
               )}
             </div>
