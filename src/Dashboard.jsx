@@ -277,7 +277,7 @@ export default function Dashboard() {
         }}
       >
         <div>
-          <img src={logo} alt="Rideeazy" style={{ height: 28, marginBottom: 10, display: "block" }} />
+          <img src={logo} alt="Rideeazy" style={{ height: 46, marginBottom: 12, display: "block" }} />
           <h1 style={{ margin: 0, fontSize: 26, fontWeight: 700, color: "#FFFFFF" }}>
             דוח סטטוס תפעולי שבועי
           </h1>

@@ -37,4 +37,16 @@
     max-width: 100% !important;
     height: auto !important;
   }
+
+  /* Chart text is sized for a screen viewed up close; on a printed
+     landscape page it reads as tiny. Recharts sets font-size inline via
+     SVG attributes, so this needs !important to win. */
+  .recharts-cartesian-axis-tick-value,
+  .recharts-label,
+  .recharts-text {
+    font-size: 15px !important;
+  }
+  .recharts-legend-item-text {
+    font-size: 14px !important;
+  }
 }
