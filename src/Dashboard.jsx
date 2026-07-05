@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import * as XLSX from "xlsx";
 import {
   ResponsiveContainer,
@@ -17,16 +17,11 @@ import { parseWorkbook, monthlyTotals, daysInRange, sumDayMetrics, METRIC_LABELS
 import { parseRevenueCsv, weeklyRevenue, monthlyRevenue, mergeRevenueIntoDays } from "./lib/parseRevenue.js";
 import { supportsFileSystemAccess, EXCEL_HANDLE_KEY, REVENUE_HANDLE_KEY } from "./lib/fileHandle.js";
 import { useLoadableFile } from "./lib/useLoadableFile.js";
+import { fetchDatasets, saveDataset, OPS_DATASET, REVENUE_DATASET } from "./lib/datasets.js";
+import { supabase } from "./lib/supabaseClient.js";
 import logo from "./assets/rideeazy-logo.png";
-import seedData from "./seedData.json";
 import "./print.css";
 
-const EXCEL_CACHE_KEY = "rideeazy-dashboard-cache";
-const REVENUE_CACHE_KEY = "rideeazy-revenue-cache";
-// Bump whenever a loader's cached shape changes so old browser caches get
-// discarded instead of silently supplying missing/stale fields.
-const EXCEL_CACHE_VERSION = 3;
-const REVENUE_CACHE_VERSION = 1;
 const REVENUE_KEY = "הכנסות";
 
 async function parseExcelFile(file) {
@@ -105,34 +100,55 @@ const CSV_ACCEPT = { description: "CSV", accept: { "text/csv": [".csv"] } };
 export default function Dashboard() {
   const [range, setRange] = useState("all"); // 'all' | '8w' | '4w'
 
+  // Cloud-backed datasets — the single source of truth for every device.
+  // Uploading a file on any machine writes here, so everyone stays in sync.
+  const [ops, setOps] = useState(null); // { weeks, days, fileName, lastLoaded }
+  const [revenue, setRevenue] = useState(null); // { days, fileName, lastLoaded }
+  const [cloudStatus, setCloudStatus] = useState("loading"); // loading | ready | error
+  const [cloudError, setCloudError] = useState(null);
+
+  useEffect(() => {
+    fetchDatasets()
+      .then((rows) => {
+        if (rows[OPS_DATASET]) setOps(rows[OPS_DATASET].payload);
+        if (rows[REVENUE_DATASET]) setRevenue(rows[REVENUE_DATASET].payload);
+        setCloudStatus("ready");
+      })
+      .catch((err) => {
+        setCloudStatus("error");
+        setCloudError(err.message);
+      });
+  }, []);
+
+  const onOpsParsed = useCallback(async (parsed, fileName) => {
+    const payload = { weeks: parsed.weeks, days: parsed.days, fileName, lastLoaded: new Date().toISOString() };
+    await saveDataset(OPS_DATASET, payload);
+    setOps(payload);
+  }, []);
+
+  const onRevenueParsed = useCallback(async (parsed, fileName) => {
+    const payload = { days: parsed, fileName, lastLoaded: new Date().toISOString() };
+    await saveDataset(REVENUE_DATASET, payload);
+    setRevenue(payload);
+  }, []);
+
   const excelLoader = useLoadableFile({
     handleKey: EXCEL_HANDLE_KEY,
-    cacheKey: EXCEL_CACHE_KEY,
-    cacheVersion: EXCEL_CACHE_VERSION,
     parse: parseExcelFile,
     accept: EXCEL_ACCEPT,
-    initial: {
-      data: { weeks: seedData.weeks, days: seedData.days || [] },
-      fileName: seedData.fileName,
-      lastLoaded: seedData.lastLoaded,
-    },
+    onParsed: onOpsParsed,
   });
-  const weeks = excelLoader.data.weeks;
-  const days = excelLoader.data.days;
 
   const revenueLoader = useLoadableFile({
     handleKey: REVENUE_HANDLE_KEY,
-    cacheKey: REVENUE_CACHE_KEY,
-    cacheVersion: REVENUE_CACHE_VERSION,
     parse: parseRevenueFile,
     accept: CSV_ACCEPT,
-    initial: {
-      data: seedData.revenueDays || [],
-      fileName: seedData.revenueFileName,
-      lastLoaded: seedData.revenueLastLoaded,
-    },
+    onParsed: onRevenueParsed,
   });
-  const revenueDays = revenueLoader.data;
+
+  const weeks = ops?.weeks || [];
+  const days = ops?.days || [];
+  const revenueDays = revenue?.days || [];
 
   const data = useMemo(() => {
     if (range === "4w") return weeks.slice(-4);
@@ -287,8 +303,8 @@ export default function Dashboard() {
             {weeks.length > 0
               ? `${weeks.length} שבועות · עודכן עד ${latest.week}`
               : "טרם נטענו נתונים"}
-            {excelLoader.fileName ? ` · ${excelLoader.fileName}` : ""}
-            {excelLoader.lastLoaded ? ` · נטען ${formatTimestamp(excelLoader.lastLoaded)}` : ""}
+            {ops?.fileName ? ` · ${ops.fileName}` : ""}
+            {ops?.lastLoaded ? ` · עודכן ${formatTimestamp(ops.lastLoaded)}` : ""}
           </div>
         </div>
         <div className="no-print" style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -362,6 +378,23 @@ export default function Dashboard() {
               {r.label}
             </button>
           ))}
+          <div style={{ width: 1, alignSelf: "stretch", background: "rgba(255,255,255,0.2)" }} />
+          <button
+            onClick={() => supabase.auth.signOut()}
+            title="יציאה מהמערכת"
+            style={{
+              background: "transparent",
+              color: "#8B90AD",
+              border: "1px solid rgba(255,255,255,0.15)",
+              borderRadius: RADIUS_PILL,
+              padding: "6px 14px",
+              fontSize: 13,
+              cursor: "pointer",
+              fontWeight: 700,
+            }}
+          >
+            יציאה
+          </button>
         </div>
       </div>
 
@@ -378,7 +411,33 @@ export default function Dashboard() {
       )}
 
       <div style={{ padding: "28px 28px 32px" }}>
-        {weeks.length === 0 ? (
+        {cloudStatus === "loading" ? (
+          <div
+            style={{
+              background: "#FFFFFF",
+              border: `1px solid ${BORDER}`,
+              borderRadius: RADIUS,
+              padding: 40,
+              textAlign: "center",
+              color: "#6B7099",
+            }}
+          >
+            טוען נתונים…
+          </div>
+        ) : cloudStatus === "error" ? (
+          <div
+            style={{
+              background: "#FDECEC",
+              border: `1px solid #F3C4C1`,
+              borderRadius: RADIUS,
+              padding: 40,
+              textAlign: "center",
+              color: "#B23A34",
+            }}
+          >
+            שגיאה בטעינת הנתונים מהענן: {cloudError}
+          </div>
+        ) : weeks.length === 0 ? (
           <div
             style={{
               background: "#FFFFFF",
@@ -598,8 +657,8 @@ export default function Dashboard() {
                   <div style={{ fontSize: 15, fontWeight: 700, color: NAVY }}>הכנסות</div>
                   <div style={{ fontSize: 12, color: "#8B90AD", marginTop: 2 }}>
                     מתוך דוח ריכוז מסמכים · "חשבונית מס קבלה" בלבד
-                    {revenueLoader.fileName ? ` · ${revenueLoader.fileName}` : ""}
-                    {revenueLoader.lastLoaded ? ` · נטען ${formatTimestamp(revenueLoader.lastLoaded)}` : ""}
+                    {revenue?.fileName ? ` · ${revenue.fileName}` : ""}
+                    {revenue?.lastLoaded ? ` · עודכן ${formatTimestamp(revenue.lastLoaded)}` : ""}
                   </div>
                 </div>
                 <div className="no-print" style={{ display: "flex", alignItems: "center", gap: 8 }}>

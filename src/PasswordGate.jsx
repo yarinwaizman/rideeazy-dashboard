@@ -1,10 +1,9 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { supabase, SHARED_EMAIL } from "./lib/supabaseClient.js";
 
-// Client-side only — a deterrent against casual link-sharing, not real
-// security. Anyone who inspects the network/JS bundle directly can still
-// read the data regardless of this gate. See project notes for context.
-const PASSWORD_HASH = "e7c1cca99cff0ca77b85e1a185db4ca951c7ceec75dee02af4a43d204b9ec461";
-const SESSION_KEY = "rideeazy-dashboard-auth";
+// Real access control: the password signs into a shared Supabase account,
+// and all dashboard data lives behind RLS that only authenticated sessions
+// can read. Nothing is baked into the public bundle anymore.
 
 const NAVY = "#1C2047";
 const TEAL = "#51DFD7";
@@ -13,31 +12,36 @@ const BG = "#F7F8FB";
 const RADIUS = 16;
 const RADIUS_PILL = 999;
 
-async function sha256Hex(text) {
-  const bytes = new TextEncoder().encode(text);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
 export default function PasswordGate({ children }) {
-  const [unlocked, setUnlocked] = useState(() => sessionStorage.getItem(SESSION_KEY) === "1");
+  const [session, setSession] = useState(null);
+  const [ready, setReady] = useState(false);
   const [value, setValue] = useState("");
   const [error, setError] = useState(false);
   const [checking, setChecking] = useState(false);
 
-  if (unlocked) return children;
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setReady(true);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  if (!ready) return null;
+  if (session) return children;
 
   const submit = async (e) => {
     e.preventDefault();
     setChecking(true);
-    const hash = await sha256Hex(value);
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: SHARED_EMAIL,
+      password: value,
+    });
     setChecking(false);
-    if (hash === PASSWORD_HASH) {
-      sessionStorage.setItem(SESSION_KEY, "1");
-      setUnlocked(true);
-    } else {
-      setError(true);
-    }
+    if (signInError) setError(true);
   };
 
   return (

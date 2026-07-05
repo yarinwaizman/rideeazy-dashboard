@@ -1,16 +1,17 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useRef } from "react";
 import { supportsFileSystemAccess, saveFileHandle, loadFileHandle, verifyPermission } from "./fileHandle.js";
 
-// Shared "load once, remember, manual refresh" behavior for any file this
-// dashboard reads locally (the ops Excel, the revenue CSV, ...). Remembers
-// the picked file via the File System Access API where supported (Chrome /
-// Edge) so refresh doesn't require re-browsing; falls back to a plain file
-// input elsewhere. Caches the parsed result in localStorage, versioned so
-// shape changes don't get silently half-applied from an older cache.
-export function useLoadableFile({ handleKey, cacheKey, cacheVersion, parse, accept, initial }) {
-  const [data, setData] = useState(initial.data);
-  const [fileName, setFileName] = useState(initial.fileName ?? null);
-  const [lastLoaded, setLastLoaded] = useState(initial.lastLoaded ?? null);
+// Shared "pick a local file, remember it, one-click refresh" behavior for
+// the files this dashboard ingests (the ops Excel, the revenue CSV).
+// Remembers the picked file via the File System Access API where supported
+// (Chrome/Edge) so refresh doesn't require re-browsing; falls back to a
+// plain file input elsewhere.
+//
+// The hook no longer holds the parsed data or caches it locally — parsed
+// results are handed to `onParsed(parsed, fileName)`, which is expected to
+// persist them (to Supabase) and update app state. Awaited, so persistence
+// failures surface here as an error status.
+export function useLoadableFile({ handleKey, parse, accept, onParsed }) {
   const [status, setStatus] = useState("idle"); // idle | loading | error
   const [errorMsg, setErrorMsg] = useState(null);
   const fileInputRef = useRef(null);
@@ -20,22 +21,15 @@ export function useLoadableFile({ handleKey, cacheKey, cacheVersion, parse, acce
       setStatus("loading");
       try {
         const parsed = await parse(file);
-        setData(parsed);
-        setFileName(file.name);
-        const now = new Date().toISOString();
-        setLastLoaded(now);
+        await onParsed(parsed, file.name);
         setStatus("idle");
         setErrorMsg(null);
-        localStorage.setItem(
-          cacheKey,
-          JSON.stringify({ version: cacheVersion, data: parsed, fileName: file.name, lastLoaded: now })
-        );
       } catch (err) {
         setStatus("error");
         setErrorMsg(err.message || "שגיאה בקריאת הקובץ");
       }
     },
-    [parse, cacheKey, cacheVersion]
+    [parse, onParsed]
   );
 
   const pickFile = useCallback(async () => {
@@ -85,45 +79,5 @@ export function useLoadableFile({ handleKey, cacheKey, cacheVersion, parse, acce
     [applyFile]
   );
 
-  useEffect(() => {
-    const cached = localStorage.getItem(cacheKey);
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        if (parsed.version === cacheVersion) {
-          setData(parsed.data);
-          setFileName(parsed.fileName || null);
-          setLastLoaded(parsed.lastLoaded || null);
-        } else {
-          // Cache predates this shape — drop it rather than silently
-          // applying a partial/stale object over the bundled default.
-          localStorage.removeItem(cacheKey);
-        }
-      } catch {
-        // ignore corrupt cache
-      }
-    }
-    if (supportsFileSystemAccess) {
-      loadFileHandle(handleKey).then(async (handle) => {
-        if (!handle) return;
-        const ok = await verifyPermission(handle).catch(() => false);
-        if (!ok) return;
-        const file = await handle.getFile();
-        applyFile(file);
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  return {
-    data,
-    fileName,
-    lastLoaded,
-    status,
-    errorMsg,
-    pickFile,
-    refresh,
-    fileInputRef,
-    onFileInputChange,
-  };
+  return { status, errorMsg, pickFile, refresh, fileInputRef, onFileInputChange };
 }
