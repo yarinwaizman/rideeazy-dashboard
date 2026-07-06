@@ -164,7 +164,12 @@ const WEEKDAY_LABELS = ["יום ראשון", "יום שני", "יום שלישי
 // Column 6 (index 5) combines Friday+Saturday into one number with no way
 // to split it further, so it becomes a single record spanning both dates
 // rather than two separate days.
-function buildDayRecords(weekLabel, month, columns, rateColumns) {
+//
+// `month` is derived from each record's own date, not inherited from the
+// week's sheet-of-origin: a week block can span two calendar months (e.g.
+// "28/6-4/7" lives in the June sheet but its later days are in July), so
+// tagging every day in it as "June" would misattribute real July data.
+function buildDayRecords(weekLabel, columns, rateColumns) {
   const range = parseWeekRange(weekLabel);
   if (!range) return [];
   // The week's Sunday: column 1 always lands on Sunday of the ISO/Israeli
@@ -189,7 +194,7 @@ function buildDayRecords(weekLabel, month, columns, rateColumns) {
       date: toISODate(date),
       endDate: toISODate(endDate),
       label: WEEKDAY_LABELS[i],
-      month,
+      month: MONTH_ORDER[date.getMonth()],
       metrics,
       rates,
     });
@@ -267,7 +272,7 @@ export function parseWorkbook(workbook) {
   // if it's all zero, since that just means it hasn't been filled in yet.
   const finalWeeks = withTotals.filter((w, i) => i === withTotals.length - 1 || !isAllZero(w.metrics));
 
-  const days = finalWeeks.flatMap((w) => buildDayRecords(w.week, w.month, w.columns, w.rateColumns));
+  const days = finalWeeks.flatMap((w) => buildDayRecords(w.week, w.columns, w.rateColumns));
 
   // Drop the internal per-column data before returning weeks publicly.
   const weeksOut = finalWeeks.map(({ week, month, metrics, rates }) => ({ week, month, metrics, rates }));
@@ -275,15 +280,21 @@ export function parseWorkbook(workbook) {
   return { weeks: weeksOut, days };
 }
 
-export function monthlyTotals(weeks, metricKey = "הזמנות ממכרזים") {
-  const totals = new Map();
-  for (const w of weeks) {
-    totals.set(w.month, (totals.get(w.month) || 0) + (w.metrics[metricKey] || 0));
+// Sums a metric by calendar month using each day record's own date — not
+// the week's sheet-of-origin — so a week spanning two months (e.g.
+// "28/6-4/7") correctly splits its days between them instead of dumping
+// the whole week's total into whichever month its sheet happened to be.
+export function monthlyTotals(days, metricKey = "הזמנות ממכרזים") {
+  const totals = new Map(); // "YYYY-MM" -> total
+  for (const d of days) {
+    const value = d.metrics[metricKey];
+    if (!value) continue;
+    const ym = d.date.slice(0, 7);
+    totals.set(ym, (totals.get(ym) || 0) + value);
   }
-  return MONTH_ORDER.filter((m) => totals.has(m)).map((month) => ({
-    month,
-    total: totals.get(month),
-  }));
+  return [...totals.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([ym, total]) => ({ month: MONTH_ORDER[Number(ym.slice(5, 7)) - 1], total }));
 }
 
 // Days whose [date, endDate] range overlaps [fromISO, toISO] (inclusive).

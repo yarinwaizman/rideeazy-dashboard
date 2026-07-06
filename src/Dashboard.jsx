@@ -184,7 +184,7 @@ export default function Dashboard() {
       "מכירה": w.rates["מכירה"] ? +(w.rates["מכירה"] * 100).toFixed(1) : 0,
     }));
 
-  const monthlyClosedOrders = useMemo(() => monthlyTotals(weeks, "הזמנות ממכרזים"), [weeks]);
+  const monthlyClosedOrders = useMemo(() => monthlyTotals(days, "הזמנות ממכרזים"), [days]);
 
   const allMetricKeys = Object.keys(METRIC_LABELS);
 
