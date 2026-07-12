@@ -27,6 +27,20 @@
     display: block !important;
   }
 
+  /* Same fix as the monthly report: a fixed px width instead of the
+     implicit 100%-of-body it had before. Some print engines resolve
+     percentage widths against the on-screen body width rather than the
+     actual printable page area, so "100%" silently overflows regardless
+     of the print dialog's scale setting unless something forces a known,
+     print-safe width. 960px fits both US Letter and A4 landscape with
+     12mm margins (~966-1032px printable width). */
+  .dashboard-root {
+    width: 960px !important;
+    max-width: 960px !important;
+    margin: 0 auto !important;
+    box-sizing: border-box !important;
+  }
+
   body {
     background: #ffffff !important;
     -webkit-print-color-adjust: exact;
