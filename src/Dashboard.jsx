@@ -160,19 +160,19 @@ export default function Dashboard() {
   const prev = weeks[weeks.length - 2];
 
   const kpis = [
-    { key: "כניסות לאתר נחיתה", label: "כניסות לדף נחיתה" },
-    { key: "הרשמות לאתר", label: "הרשמות" },
-    { key: "הצעות מחיר", label: "הצעות מחיר" },
-    { key: "מכרזים נפתחו", label: "מכרזים נפתחו" },
-    { key: "הזמנות ממכרזים", label: "הזמנות סגורות" },
+    { key: "כניסות לאתר נחיתה", label: METRIC_LABELS["כניסות לאתר נחיתה"] },
+    { key: "הרשמות לאתר", label: METRIC_LABELS["הרשמות לאתר"] },
+    { key: "הצעות מחיר", label: METRIC_LABELS["הצעות מחיר"] },
+    { key: "מכרזים נפתחו", label: METRIC_LABELS["מכרזים נפתחו"] },
+    { key: "הזמנות ממכרזים", label: METRIC_LABELS["הזמנות ממכרזים"] },
   ];
 
   const chartData = data.map((w) => ({
     week: w.week,
     "כניסות לדף נחיתה": w.metrics["כניסות לאתר נחיתה"] || 0,
-    "הרשמות": w.metrics["הרשמות לאתר"] || 0,
+    "הרשמות לאתר": w.metrics["הרשמות לאתר"] || 0,
     "הצעות מחיר": w.metrics["הצעות מחיר"] || 0,
-    "הזמנות סגורות": w.metrics["הזמנות ממכרזים"] || 0,
+    "הזמנות": w.metrics["הזמנות ממכרזים"] || 0,
   }));
 
   const rateData = weeks
@@ -297,7 +297,7 @@ export default function Dashboard() {
         <div>
           <img src={logo} alt="Rideeazy" style={{ height: 46, marginBottom: 12, display: "block" }} />
           <h1 style={{ margin: 0, fontSize: 26, fontWeight: 700, color: "#FFFFFF" }}>
-            דוח סטטוס תפעולי שבועי
+            דוח סטטוס תפעולי
           </h1>
           <div style={{ color: "#AEB3D0", fontSize: 13, marginTop: 4 }}>
             {weeks.length > 0
@@ -505,7 +505,7 @@ export default function Dashboard() {
               }}
             >
               <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4, color: NAVY }}>
-                תצוגה יומית
+                תצוגה לפי בחירה
               </div>
               <div style={{ fontSize: 12, color: "#8B90AD", marginBottom: 14 }}>
                 בחרו תאריך בודד, או טווח תאריכים, לצפייה בנתונים היומיים
@@ -732,12 +732,14 @@ export default function Dashboard() {
                       <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
                         <span style={{ fontSize: 26, fontWeight: 700, color: NAVY }}>
                           {formatShekel(latestRevenueWeek?.revenue)}
+                          <span style={{ fontSize: 16, color: "#9498B5" }}>*</span>
                         </span>
                         <Delta value={pctChange(latestRevenueWeek?.revenue, prevRevenueWeek?.revenue)} />
                       </div>
                       <div style={{ fontSize: 11, color: "#9498B5", marginTop: 4 }}>
                         שבוע קודם: {formatShekel(prevRevenueWeek?.revenue)}
                       </div>
+                      <div style={{ fontSize: 10.5, color: "#B3B7CC", marginTop: 6 }}>* לחודש זה</div>
                     </div>
                   </div>
 
@@ -768,7 +770,7 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <ResponsiveContainer width="100%" height={220}>
-                    <ComposedChart data={revenueChartData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
+                    <ComposedChart data={revenueChartData} margin={{ top: 20, right: 10, left: -10, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
                       <XAxis dataKey="label" tick={{ fill: "#8B90AD", fontSize: 10.5 }} />
                       <YAxis tick={{ fill: "#8B90AD", fontSize: 11 }} tickFormatter={formatShekelShort} />
@@ -777,7 +779,14 @@ export default function Dashboard() {
                         labelStyle={{ color: NAVY, fontWeight: 700 }}
                         formatter={(v) => formatShekel(v)}
                       />
-                      <Bar dataKey="revenue" name="הכנסות" fill={TEAL} radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="revenue" name="הכנסות" fill={TEAL} radius={[3, 3, 0, 0]}>
+                        <LabelList
+                          dataKey="revenue"
+                          position="top"
+                          formatter={formatShekelShort}
+                          style={{ fill: NAVY, fontSize: 10.5, fontWeight: 700 }}
+                        />
+                      </Bar>
                     </ComposedChart>
                   </ResponsiveContainer>
 
@@ -824,7 +833,7 @@ export default function Dashboard() {
                 מגמת המשפך השבועית
               </div>
               <div style={{ fontSize: 12, color: "#8B90AD", marginBottom: 12 }}>
-                כניסות → הרשמות → הצעות מחיר → הזמנות סגורות
+                כניסות → הרשמות לאתר → הצעות מחיר → הזמנות
               </div>
               <ResponsiveContainer width="100%" height={320}>
                 <ComposedChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
@@ -837,9 +846,9 @@ export default function Dashboard() {
                   />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                   <Bar dataKey="כניסות לדף נחיתה" fill="#DDE1EE" radius={[3, 3, 0, 0]} />
-                  <Line type="monotone" dataKey="הרשמות" stroke={NAVY} strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="הרשמות לאתר" stroke={NAVY} strokeWidth={2} dot={false} />
                   <Line type="monotone" dataKey="הצעות מחיר" stroke="#8B90AD" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="הזמנות סגורות" stroke={TEAL} strokeWidth={3} dot={{ r: 3, fill: TEAL }} />
+                  <Line type="monotone" dataKey="הזמנות" stroke={TEAL} strokeWidth={3} dot={{ r: 3, fill: TEAL }} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -871,7 +880,7 @@ export default function Dashboard() {
                     contentStyle={{ background: "#FFFFFF", border: `1px solid ${BORDER}`, borderRadius: RADIUS, fontSize: 12 }}
                     labelStyle={{ color: NAVY, fontWeight: 700 }}
                   />
-                  <Bar dataKey="total" name="הזמנות סגורות" fill={TEAL} radius={[3, 3, 0, 0]}>
+                  <Bar dataKey="total" name="הזמנות" fill={TEAL} radius={[3, 3, 0, 0]}>
                     <LabelList dataKey="total" position="top" style={{ fill: NAVY, fontSize: 12, fontWeight: 700 }} />
                   </Bar>
                 </BarChart>
