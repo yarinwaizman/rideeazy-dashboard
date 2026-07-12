@@ -18,6 +18,7 @@ import { parseRevenueCsv, weeklyRevenue, monthlyRevenue, mergeRevenueIntoDays } 
 import { supportsFileSystemAccess, EXCEL_HANDLE_KEY, REVENUE_HANDLE_KEY } from "./lib/fileHandle.js";
 import { useLoadableFile } from "./lib/useLoadableFile.js";
 import { fetchDatasets, saveDataset, OPS_DATASET, REVENUE_DATASET } from "./lib/datasets.js";
+import { availableMonths, monthSummary, formatMonthLabel } from "./lib/monthlyReport.js";
 import { supabase } from "./lib/supabaseClient.js";
 import logo from "./assets/rideeazy-logo.png";
 import "./print.css";
@@ -235,6 +236,32 @@ export default function Dashboard() {
 
   const exportPdf = () => window.print();
 
+  // Monthly report: a concise MoM executive summary for one month, printed
+  // separately from the full dashboard (see .dashboard-root /
+  // .monthly-report-root toggle in print.css).
+  const reportMonths = useMemo(() => availableMonths(days, revenueDays), [days, revenueDays]);
+  const [reportMonth, setReportMonth] = useState("");
+  useEffect(() => {
+    if (reportMonth || reportMonths.length === 0) return;
+    const currentYm = new Date().toISOString().slice(0, 7);
+    const isCurrentInProgress = reportMonths[reportMonths.length - 1] === currentYm && reportMonths.length > 1;
+    setReportMonth(isCurrentInProgress ? reportMonths[reportMonths.length - 2] : reportMonths[reportMonths.length - 1]);
+  }, [reportMonths, reportMonth]);
+  const report = useMemo(
+    () => (reportMonth ? monthSummary(days, revenueDays, reportMonth) : null),
+    [days, revenueDays, reportMonth]
+  );
+
+  const printMonthlyReport = () => {
+    const cleanup = () => {
+      document.body.classList.remove("printing-monthly-report");
+      window.removeEventListener("afterprint", cleanup);
+    };
+    window.addEventListener("afterprint", cleanup);
+    document.body.classList.add("printing-monthly-report");
+    setTimeout(() => window.print(), 50);
+  };
+
   // Recharts' ResponsiveContainer sizes each chart via ResizeObserver on its
   // wrapping div, measured against the on-screen layout. It doesn't reliably
   // re-measure when the browser switches to the print page's (narrower,
@@ -257,6 +284,7 @@ export default function Dashboard() {
   return (
     <div
       dir="rtl"
+      className="dashboard-root"
       style={{
         fontFamily:
           "'Rubik', 'Open Sans Hebrew', 'Open Sans', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif",
@@ -631,6 +659,112 @@ export default function Dashboard() {
               )}
             </div>
 
+            {/* Monthly report */}
+            <div
+              className="no-print"
+              style={{
+                background: "#FFFFFF",
+                border: `1px solid ${BORDER}`,
+                borderRadius: RADIUS,
+                padding: "20px 20px",
+                marginBottom: 24,
+                boxShadow: "0 4px 20px rgba(28,32,71,0.06)",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "flex-start",
+                  flexWrap: "wrap",
+                  gap: 12,
+                  marginBottom: 14,
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: NAVY }}>דוח חודשי</div>
+                  <div style={{ fontSize: 12, color: "#8B90AD", marginTop: 2 }}>
+                    סיכום מנהלים לחודש נבחר, כולל השוואה לחודש הקודם
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <select
+                    value={reportMonth}
+                    onChange={(e) => setReportMonth(e.target.value)}
+                    style={{
+                      border: `1px solid ${BORDER}`,
+                      borderRadius: RADIUS,
+                      padding: "8px 12px",
+                      fontSize: 13,
+                      background: "#FFFFFF",
+                      color: NAVY,
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    {reportMonths.map((ym) => (
+                      <option key={ym} value={ym}>
+                        {formatMonthLabel(ym)}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={printMonthlyReport}
+                    disabled={!report}
+                    style={{
+                      background: TEAL,
+                      color: NAVY,
+                      border: `1px solid ${TEAL}`,
+                      borderRadius: RADIUS_PILL,
+                      padding: "8px 16px",
+                      fontSize: 13,
+                      cursor: report ? "pointer" : "not-allowed",
+                      fontWeight: 700,
+                    }}
+                  >
+                    ייצוא דוח חודשי
+                  </button>
+                </div>
+              </div>
+
+              {!report ? (
+                <div style={{ fontSize: 12.5, color: "#9498B5" }}>אין עדיין נתונים ליצירת דוח חודשי.</div>
+              ) : (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+                    gap: 12,
+                  }}
+                >
+                  {kpis.map((k) => {
+                    const curr = report.metrics[k.key] || 0;
+                    const before = report.prevMetrics[k.key] || 0;
+                    return (
+                      <div
+                        key={k.key}
+                        style={{ background: BG, border: `1px solid ${BORDER}`, borderRadius: RADIUS, padding: "12px 14px" }}
+                      >
+                        <div style={{ fontSize: 11.5, color: "#6B7099", marginBottom: 4, fontWeight: 600 }}>{k.label}</div>
+                        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                          <span style={{ fontSize: 20, fontWeight: 700, color: NAVY }}>{curr}</span>
+                          <Delta value={pctChange(curr, before)} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div
+                    style={{ background: BG, border: `1px solid ${BORDER}`, borderRadius: RADIUS, padding: "12px 14px" }}
+                  >
+                    <div style={{ fontSize: 11.5, color: "#6B7099", marginBottom: 4, fontWeight: 600 }}>הכנסות</div>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                      <span style={{ fontSize: 20, fontWeight: 700, color: NAVY }}>{formatShekel(report.revenue)}</span>
+                      <Delta value={pctChange(report.revenue, report.prevRevenue)} />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Revenue */}
             <div
               className="print-avoid-break"
@@ -969,6 +1103,96 @@ export default function Dashboard() {
           </>
         )}
       </div>
+
+      {/* Printable monthly report — hidden on screen, shown only during
+          printMonthlyReport()'s print pass (see print.css). */}
+      {report && (
+        <div
+          className="monthly-report-root"
+          dir="rtl"
+          style={{
+            fontFamily:
+              "'Rubik', 'Open Sans Hebrew', 'Open Sans', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif",
+            color: NAVY,
+            padding: 24,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+            <div>
+              <img src={logo} alt="Rideeazy" style={{ height: 36, marginBottom: 10, display: "block" }} />
+              <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: NAVY }}>דוח חודשי — {report.label}</h1>
+              <div style={{ fontSize: 12, color: "#6B7099", marginTop: 4 }}>
+                בהשוואה ל{report.prevLabel} · הופק ב-{formatTimestamp(new Date().toISOString())}
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: 14,
+              marginBottom: 24,
+            }}
+          >
+            {[...kpis, { key: REVENUE_KEY, label: "הכנסות" }].map((k) => {
+              const curr = k.key === REVENUE_KEY ? report.revenue : report.metrics[k.key] || 0;
+              const before = k.key === REVENUE_KEY ? report.prevRevenue : report.prevMetrics[k.key] || 0;
+              return (
+                <div
+                  key={k.key}
+                  style={{
+                    background: "#FFFFFF",
+                    border: `1px solid ${BORDER}`,
+                    borderTop: `3px solid ${TEAL}`,
+                    borderRadius: RADIUS,
+                    padding: "14px 16px",
+                  }}
+                >
+                  <div style={{ fontSize: 12, color: "#6B7099", marginBottom: 6, fontWeight: 600 }}>{k.label}</div>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                    <span style={{ fontSize: 22, fontWeight: 700, color: NAVY }}>
+                      {k.key === REVENUE_KEY ? formatShekel(curr) : curr}
+                    </span>
+                    <Delta value={pctChange(curr, before)} />
+                  </div>
+                  <div style={{ fontSize: 10.5, color: "#9498B5", marginTop: 3 }}>
+                    {report.prevLabel}: {k.key === REVENUE_KEY ? formatShekel(before) : before}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr>
+                <th style={thStyle}>מדד</th>
+                <th style={thStyle}>{report.label}</th>
+                <th style={thStyle}>{report.prevLabel}</th>
+                <th style={thStyle}>שינוי</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...kpis, { key: REVENUE_KEY, label: "הכנסות" }].map((k, i) => {
+                const curr = k.key === REVENUE_KEY ? report.revenue : report.metrics[k.key] || 0;
+                const before = k.key === REVENUE_KEY ? report.prevRevenue : report.prevMetrics[k.key] || 0;
+                const delta = pctChange(curr, before);
+                return (
+                  <tr key={k.key} style={{ background: i % 2 === 0 ? "#FFFFFF" : "#F7F8FB" }}>
+                    <td style={{ ...tdStyle, fontWeight: 700, color: NAVY }}>{k.label}</td>
+                    <td style={tdStyle}>{k.key === REVENUE_KEY ? formatShekel(curr) : curr}</td>
+                    <td style={tdStyle}>{k.key === REVENUE_KEY ? formatShekel(before) : before}</td>
+                    <td style={tdStyle}>
+                      {delta === null ? "—" : `${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta).toFixed(0)}%`}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

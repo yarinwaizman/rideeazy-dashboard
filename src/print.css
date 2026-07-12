@@ -1,3 +1,10 @@
+/* The monthly report is a separate printable view: hidden on screen always,
+   and swapped in for the full dashboard only during its own print pass
+   (toggled via a body class right before window.print()). */
+.monthly-report-root {
+  display: none;
+}
+
 @media print {
   @page {
     size: landscape;
@@ -6,6 +13,13 @@
 
   .no-print {
     display: none !important;
+  }
+
+  body.printing-monthly-report .dashboard-root {
+    display: none !important;
+  }
+  body.printing-monthly-report .monthly-report-root {
+    display: block !important;
   }
 
   body {
