@@ -282,6 +282,7 @@ export default function Dashboard() {
   }, []);
 
   return (
+    <>
     <div
       dir="rtl"
       className="dashboard-root"
@@ -1103,10 +1104,13 @@ export default function Dashboard() {
           </>
         )}
       </div>
+    </div>
 
-      {/* Printable monthly report — hidden on screen, shown only during
-          printMonthlyReport()'s print pass (see print.css). */}
-      {report && (
+    {/* Printable monthly report — hidden on screen, shown only during
+        printMonthlyReport()'s print pass (see print.css). Rendered as a
+        sibling of dashboard-root (not nested inside it), since an
+        ancestor's display:none can't be overridden by a child. */}
+    {report && (
         <div
           className="monthly-report-root"
           dir="rtl"
@@ -1193,7 +1197,7 @@ export default function Dashboard() {
           </table>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
