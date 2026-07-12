@@ -4,6 +4,11 @@
 .monthly-report-root {
   display: none;
 }
+.monthly-report-root,
+.monthly-report-root * {
+  box-sizing: border-box;
+  max-width: 100%;
+}
 
 @media print {
   @page {

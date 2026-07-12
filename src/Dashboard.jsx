@@ -1119,6 +1119,10 @@ export default function Dashboard() {
               "'Rubik', 'Open Sans Hebrew', 'Open Sans', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif",
             color: NAVY,
             padding: 24,
+            width: "100%",
+            maxWidth: "100%",
+            boxSizing: "border-box",
+            overflow: "hidden",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
@@ -1137,6 +1141,8 @@ export default function Dashboard() {
               gridTemplateColumns: "repeat(3, 1fr)",
               gap: 14,
               marginBottom: 24,
+              width: "100%",
+              boxSizing: "border-box",
             }}
           >
             {[...kpis, { key: REVENUE_KEY, label: "הכנסות" }].map((k) => {
@@ -1151,6 +1157,8 @@ export default function Dashboard() {
                     borderTop: `3px solid ${TEAL}`,
                     borderRadius: RADIUS,
                     padding: "14px 16px",
+                    boxSizing: "border-box",
+                    minWidth: 0,
                   }}
                 >
                   <div style={{ fontSize: 12, color: "#6B7099", marginBottom: 6, fontWeight: 600 }}>{k.label}</div>
@@ -1168,13 +1176,27 @@ export default function Dashboard() {
             })}
           </div>
 
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <table
+            style={{
+              width: "100%",
+              maxWidth: "100%",
+              tableLayout: "fixed",
+              borderCollapse: "collapse",
+              fontSize: 13,
+            }}
+          >
+            <colgroup>
+              <col style={{ width: "34%" }} />
+              <col style={{ width: "22%" }} />
+              <col style={{ width: "22%" }} />
+              <col style={{ width: "22%" }} />
+            </colgroup>
             <thead>
               <tr>
-                <th style={thStyle}>מדד</th>
-                <th style={thStyle}>{report.label}</th>
-                <th style={thStyle}>{report.prevLabel}</th>
-                <th style={thStyle}>שינוי</th>
+                <th style={reportThStyle}>מדד</th>
+                <th style={reportThStyle}>{report.label}</th>
+                <th style={reportThStyle}>{report.prevLabel}</th>
+                <th style={reportThStyle}>שינוי</th>
               </tr>
             </thead>
             <tbody>
@@ -1184,10 +1206,10 @@ export default function Dashboard() {
                 const delta = pctChange(curr, before);
                 return (
                   <tr key={k.key} style={{ background: i % 2 === 0 ? "#FFFFFF" : "#F7F8FB" }}>
-                    <td style={{ ...tdStyle, fontWeight: 700, color: NAVY }}>{k.label}</td>
-                    <td style={tdStyle}>{k.key === REVENUE_KEY ? formatShekel(curr) : curr}</td>
-                    <td style={tdStyle}>{k.key === REVENUE_KEY ? formatShekel(before) : before}</td>
-                    <td style={tdStyle}>
+                    <td style={{ ...reportTdStyle, fontWeight: 700, color: NAVY }}>{k.label}</td>
+                    <td style={reportTdStyle}>{k.key === REVENUE_KEY ? formatShekel(curr) : curr}</td>
+                    <td style={reportTdStyle}>{k.key === REVENUE_KEY ? formatShekel(before) : before}</td>
+                    <td style={reportTdStyle}>
                       {delta === null ? "—" : `${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta).toFixed(0)}%`}
                     </td>
                   </tr>
@@ -1216,3 +1238,10 @@ const tdStyle = {
   color: "#3A3F63",
   whiteSpace: "nowrap",
 };
+
+// Same look as thStyle/tdStyle but allows wrapping — the monthly report's
+// table has no horizontal-scroll container (unlike the dashboard's other
+// tables), so forcing nowrap on Hebrew labels made columns wider than the
+// printable page and got the whole report clipped.
+const reportThStyle = { ...thStyle, whiteSpace: "normal", wordBreak: "break-word" };
+const reportTdStyle = { ...tdStyle, whiteSpace: "normal", wordBreak: "break-word" };
