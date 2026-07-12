@@ -1119,10 +1119,14 @@ export default function Dashboard() {
               "'Rubik', 'Open Sans Hebrew', 'Open Sans', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif",
             color: NAVY,
             padding: 24,
-            width: "100%",
-            maxWidth: "100%",
+            // Fixed px, not %: some print engines resolve percentage widths
+            // against the on-screen body width rather than the actual
+            // printable page area, which silently reproduces overflow no
+            // matter how "correct" the percentages are. A fixed width has
+            // no ambiguous basis to miscompute — 900px comfortably fits
+            // both US Letter and A4 landscape with margins (~960-1030px).
+            width: 900,
             boxSizing: "border-box",
-            overflow: "hidden",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
@@ -1137,12 +1141,10 @@ export default function Dashboard() {
 
           <div
             style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(3, 1fr)",
+              display: "flex",
+              flexWrap: "wrap",
               gap: 14,
               marginBottom: 24,
-              width: "100%",
-              boxSizing: "border-box",
             }}
           >
             {[...kpis, { key: REVENUE_KEY, label: "הכנסות" }].map((k) => {
@@ -1158,7 +1160,7 @@ export default function Dashboard() {
                     borderRadius: RADIUS,
                     padding: "14px 16px",
                     boxSizing: "border-box",
-                    minWidth: 0,
+                    width: 270, // fixed: 3 per row within the report's fixed 900px width
                   }}
                 >
                   <div style={{ fontSize: 12, color: "#6B7099", marginBottom: 6, fontWeight: 600 }}>{k.label}</div>
@@ -1178,18 +1180,17 @@ export default function Dashboard() {
 
           <table
             style={{
-              width: "100%",
-              maxWidth: "100%",
+              width: 852, // fixed, same basis as the report root (900px minus its 24px*2 padding)
               tableLayout: "fixed",
               borderCollapse: "collapse",
               fontSize: 13,
             }}
           >
             <colgroup>
-              <col style={{ width: "34%" }} />
-              <col style={{ width: "22%" }} />
-              <col style={{ width: "22%" }} />
-              <col style={{ width: "22%" }} />
+              <col style={{ width: 300 }} />
+              <col style={{ width: 184 }} />
+              <col style={{ width: 184 }} />
+              <col style={{ width: 184 }} />
             </colgroup>
             <thead>
               <tr>
