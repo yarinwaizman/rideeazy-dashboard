@@ -1,10 +1,26 @@
 import Papa from "papaparse";
 
-// The finance export lists several document types (quotes, credit notes,
-// transaction invoices...); only "חשבונית מס קבלה" (tax invoice/receipt)
-// represents money actually received, so that's the only type counted as
-// revenue.
+// The finance export lists several document types (quotes, transaction
+// invoices...); only "חשבונית מס קבלה" (tax invoice/receipt) represents
+// money actually received, so it's the type counted as revenue — minus
+// invoices that were later cancelled, which "חשבונית זיכוי" (credit
+// invoice) rows reveal.
+//
+// Credits matter because of how EZcount handles a cancelled invoice (e.g.
+// one re-issued to a different payer): the cancelled original still appears
+// in the export as a normal positive receipt-invoice row — the export has
+// no status column, so its "מבוטל" status is invisible here — and the
+// cancellation shows up only as a credit-invoice row. Each credit is
+// matched back to its original invoice (same customer + amount, issued on
+// or before the credit) and that invoice is dropped from its own date, so
+// the cancellation corrects the week/month the revenue was originally
+// booked in rather than showing up as negative revenue on the credit's
+// date. Credits with no identifiable original (e.g. partial credits) fall
+// back to being subtracted on their own date. The negative "קבלה"
+// (receipt) row that accompanies each credit stays ignored like all
+// receipts, otherwise the reversal would be counted twice.
 const RECEIPT_TYPE = "חשבונית מס קבלה";
+const CREDIT_TYPE = "חשבונית זיכוי";
 
 export const HEBREW_MONTHS = [
   "ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני",
@@ -38,19 +54,56 @@ function round2(n) {
   return Math.round(n * 100) / 100;
 }
 
-// Revenue per calendar day, summed across all receipts issued that day.
+// Revenue per calendar day: receipt-invoices summed by issue date, with
+// credited (cancelled) invoices removed — see the credit-matching note at
+// the top of this file.
 export function parseRevenueCsv(csvText) {
   const { data } = Papa.parse(csvText, { header: true, skipEmptyLines: true });
-  const totals = new Map();
+
+  const normName = (s) => (s || "").replace(/\s+/g, " ").trim();
+
+  const invoices = [];
+  const credits = [];
   for (const row of data) {
-    if (row["סוג מסמך"] !== RECEIPT_TYPE) continue;
+    const type = row["סוג מסמך"];
+    if (type !== RECEIPT_TYPE && type !== CREDIT_TYPE) continue;
     const date = parseDMY(row["תאריך מסמך"]);
     if (!date) continue;
     const amount = parseFloat(row["סה\"כ"]);
     if (Number.isNaN(amount)) continue;
-    const iso = toISODate(date);
+    const entry = { iso: toISODate(date), name: normName(row["שם לקוח"]), amount };
+    (type === RECEIPT_TYPE ? invoices : credits).push(entry);
+  }
+
+  // Match each credit to the original invoice it reverses: same customer
+  // and amount, issued on or before the credit — the latest such invoice
+  // not already consumed by another credit.
+  const cancelled = new Set();
+  const unmatchedCredits = [];
+  for (const credit of credits) {
+    let best = -1;
+    for (let i = 0; i < invoices.length; i++) {
+      if (cancelled.has(i)) continue;
+      const inv = invoices[i];
+      if (inv.name !== credit.name) continue;
+      if (Math.abs(inv.amount) !== Math.abs(credit.amount)) continue;
+      if (inv.iso > credit.iso) continue;
+      if (best === -1 || inv.iso > invoices[best].iso) best = i;
+    }
+    if (best >= 0) cancelled.add(best);
+    else unmatchedCredits.push(credit);
+  }
+
+  const totals = new Map();
+  for (let i = 0; i < invoices.length; i++) {
+    if (cancelled.has(i)) continue;
+    const { iso, amount } = invoices[i];
     totals.set(iso, (totals.get(iso) || 0) + amount);
   }
+  for (const { iso, amount } of unmatchedCredits) {
+    totals.set(iso, (totals.get(iso) || 0) - Math.abs(amount));
+  }
+
   return [...totals.entries()]
     .map(([date, revenue]) => ({ date, revenue: round2(revenue) }))
     .sort((a, b) => a.date.localeCompare(b.date));

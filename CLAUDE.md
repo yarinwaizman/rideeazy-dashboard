@@ -103,9 +103,19 @@ before changing parsing logic:
   even if all-zero, since that just means it hasn't been filled in yet).
 - **`parseRevenue.js`**: only rows where `סוג מסמך` (document type) is
   `"חשבונית מס קבלה"` (tax invoice/receipt) count as revenue — other document
-  types (quotes, credit notes) are ignored. Revenue is bucketed into Sun–Sat
-  weeks independently of the ops workbook's own week blocks, since the
-  revenue export covers a much wider date range.
+  types (quotes, receipts, transaction invoices) are ignored. Revenue is
+  bucketed into Sun–Sat weeks independently of the ops workbook's own week
+  blocks, since the revenue export covers a much wider date range.
+- **Cancelled invoices**: when an invoice is cancelled in EZcount (e.g.
+  re-issued to a different payer), the export still lists the original as a
+  normal positive receipt-invoice row — there's no status column revealing
+  its "מבוטל" state. The cancellation is only visible as a `"חשבונית זיכוי"`
+  (credit invoice) row (plus a negative `"קבלה"` receipt, which stays
+  ignored). The parser matches each credit back to its original invoice
+  (same customer + amount, issued on or before the credit) and drops that
+  invoice from its own date, so the correction lands in the week/month the
+  revenue was originally booked; unmatched credits (e.g. partial) are
+  subtracted on the credit's own date instead.
 - **`mergeRevenueIntoDays`**: folds revenue into ops day-records by date match
   (including matching either side of the combined weekend record); days with
   revenue but no ops record become new standalone entries.
