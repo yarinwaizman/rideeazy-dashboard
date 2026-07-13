@@ -258,14 +258,67 @@ export default function Dashboard() {
           ],
         },
       ];
-      const charts = await Promise.all(
-        chartRefsWithTitles.map(async ({ title, ref, legend }) => {
-          const capture = await captureChartAsPng(ref.current);
-          return capture ? { title, legend, ...capture } : null;
-        })
-      );
+      // Charts render on screen much wider than the PDF page, so capturing
+      // them as-is bakes in text that reads far too small once shrunk onto
+      // the page. Narrow each chart's container to roughly the PDF display
+      // width first — Recharts re-lays out for that width (bigger
+      // text-to-chart ratio, auto-skipping ticks that no longer fit) — then
+      // capture, then restore. Runs behind the exporting state, so the
+      // momentary on-screen reflow is acceptable.
+      //
+      // The resize also restarts Recharts' ~1.5s entry animation, during
+      // which bar value labels are hidden and lines are partially drawn —
+      // that's why every Bar/Line sets isAnimationActive={!pdfExporting}:
+      // with animation off, the re-laid-out chart is complete immediately.
+      const EXPORT_CHART_WIDTH_PX = 760;
+      const chartEls = chartRefsWithTitles.map(({ ref }) => ref.current).filter(Boolean);
+      chartEls.forEach((el) => {
+        el.style.width = `${EXPORT_CHART_WIDTH_PX}px`;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      let charts;
+      try {
+        charts = await Promise.all(
+          chartRefsWithTitles.map(async ({ title, ref, legend }) => {
+            const capture = await captureChartAsPng(ref.current);
+            return capture ? { title, legend, ...capture } : null;
+          })
+        );
+      } finally {
+        chartEls.forEach((el) => {
+          el.style.width = "";
+        });
+      }
+      // If the on-screen daily view is filtered to a date/range, include that
+      // section in the export too — WYSIWYG with the dashboard.
+      let daily = null;
+      if (dailyResult && dailyResult.matched.length > 0) {
+        const rangeText =
+          dailyResult.from === dailyResult.to
+            ? formatShortDate(dailyResult.from)
+            : `${formatShortDate(dailyResult.from)} - ${formatShortDate(dailyResult.to)}`;
+        daily = {
+          title: `תצוגה לפי בחירה · ${rangeText}`,
+          kpis: dailyKpis.map((k) => ({
+            label: k.label,
+            value:
+              k.key === REVENUE_KEY
+                ? formatShekel(dailyResult.summary[k.key] || 0)
+                : String(dailyResult.summary[k.key] || 0),
+          })),
+          columns: dailyMetricKeys.map((k) => dailyMetricLabels[k]),
+          rows: dailyResult.matched.map((r) => ({
+            label: `${r.label} · ${
+              r.date === r.endDate ? formatShortDate(r.date) : `${formatShortDate(r.date)}-${formatShortDate(r.endDate)}`
+            }`,
+            values: dailyMetricKeys.map((k) =>
+              k === REVENUE_KEY && r.metrics[k] !== undefined ? formatShekel(r.metrics[k]) : r.metrics[k] ?? "–"
+            ),
+          })),
+        };
+      }
       const subtitle = `${weeks.length} שבועות · עודכן עד ${latest.week}${ops?.fileName ? ` · ${ops.fileName}` : ""}`;
-      await downloadDashboardPdf({ subtitle, kpis: kpiCards, tableColumns, tableRows, charts });
+      await downloadDashboardPdf({ subtitle, kpis: kpiCards, daily, tableColumns, tableRows, charts });
     } finally {
       setPdfExporting(false);
     }
@@ -931,7 +984,7 @@ export default function Dashboard() {
                           labelStyle={{ color: NAVY, fontWeight: 700 }}
                           formatter={(v) => formatShekel(v)}
                         />
-                        <Bar dataKey="revenue" name="הכנסות" fill={TEAL} radius={[3, 3, 0, 0]}>
+                        <Bar isAnimationActive={!pdfExporting} dataKey="revenue" name="הכנסות" fill={TEAL} radius={[3, 3, 0, 0]}>
                           <LabelList
                             dataKey="revenue"
                             position="top"
@@ -957,7 +1010,7 @@ export default function Dashboard() {
                           labelStyle={{ color: NAVY, fontWeight: 700 }}
                           formatter={(v) => formatShekel(v)}
                         />
-                        <Bar dataKey="revenue" name="הכנסות" fill={NAVY} radius={[3, 3, 0, 0]}>
+                        <Bar isAnimationActive={!pdfExporting} dataKey="revenue" name="הכנסות" fill={NAVY} radius={[3, 3, 0, 0]}>
                           <LabelList
                             dataKey="revenue"
                             position="top"
@@ -1001,10 +1054,10 @@ export default function Dashboard() {
                       labelStyle={{ color: NAVY, fontWeight: 700 }}
                     />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar dataKey="כניסות לדף נחיתה" fill="#DDE1EE" radius={[3, 3, 0, 0]} />
-                    <Line type="monotone" dataKey="הרשמות לאתר" stroke={NAVY} strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="הצעות מחיר" stroke="#8B90AD" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="הזמנות" stroke={TEAL} strokeWidth={3} dot={{ r: 3, fill: TEAL }} />
+                    <Bar isAnimationActive={!pdfExporting} dataKey="כניסות לדף נחיתה" fill="#DDE1EE" radius={[3, 3, 0, 0]} />
+                    <Line isAnimationActive={!pdfExporting} type="monotone" dataKey="הרשמות לאתר" stroke={NAVY} strokeWidth={2} dot={false} />
+                    <Line isAnimationActive={!pdfExporting} type="monotone" dataKey="הצעות מחיר" stroke="#8B90AD" strokeWidth={2} dot={false} />
+                    <Line isAnimationActive={!pdfExporting} type="monotone" dataKey="הזמנות" stroke={TEAL} strokeWidth={3} dot={{ r: 3, fill: TEAL }} />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
@@ -1038,7 +1091,7 @@ export default function Dashboard() {
                       contentStyle={{ background: "#FFFFFF", border: `1px solid ${BORDER}`, borderRadius: RADIUS, fontSize: 12 }}
                       labelStyle={{ color: NAVY, fontWeight: 700 }}
                     />
-                    <Bar dataKey="total" name="הזמנות" fill={TEAL} radius={[3, 3, 0, 0]}>
+                    <Bar isAnimationActive={!pdfExporting} dataKey="total" name="הזמנות" fill={TEAL} radius={[3, 3, 0, 0]}>
                       <LabelList dataKey="total" position="top" style={{ fill: NAVY, fontSize: 12, fontWeight: 700 }} />
                     </Bar>
                   </BarChart>
@@ -1077,9 +1130,9 @@ export default function Dashboard() {
                         formatter={(v) => `${v}%`}
                       />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Line type="monotone" dataKey="המרה לליד" stroke={NAVY} strokeWidth={2} />
-                      <Line type="monotone" dataKey="פתיחת מכרז" stroke={TEAL} strokeWidth={2.5} />
-                      <Line type="monotone" dataKey="מכירה" stroke="#D5504A" strokeWidth={2} />
+                      <Line isAnimationActive={!pdfExporting} type="monotone" dataKey="המרה לליד" stroke={NAVY} strokeWidth={2} />
+                      <Line isAnimationActive={!pdfExporting} type="monotone" dataKey="פתיחת מכרז" stroke={TEAL} strokeWidth={2.5} />
+                      <Line isAnimationActive={!pdfExporting} type="monotone" dataKey="מכירה" stroke="#D5504A" strokeWidth={2} />
                     </ComposedChart>
                   </ResponsiveContainer>
                 </div>

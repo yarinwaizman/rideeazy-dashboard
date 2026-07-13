@@ -3,6 +3,14 @@
 // This sidesteps react-pdf entirely for charts — it's plain browser
 // SVG->canvas->PNG, so Hebrew labels render via the browser's own text
 // engine (no font-registration or bidi concerns here).
+//
+// Text legibility note: the text is baked into the image at the chart's
+// on-screen proportions, so a wide on-screen chart shrunk onto a PDF page
+// yields tiny text. Don't try to enlarge font-size in the cloned SVG —
+// positions don't move with it, so labels collide and clip at the edges.
+// Instead the caller narrows the chart's container before capturing
+// (see exportPdf in Dashboard.jsx), letting Recharts itself re-lay out
+// with a larger text-to-chart ratio.
 export async function captureChartAsPng(containerEl, scale = 2) {
   if (!containerEl) return null;
   const svg = containerEl.querySelector("svg");

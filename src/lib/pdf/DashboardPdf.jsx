@@ -48,6 +48,22 @@ const styles = StyleSheet.create({
   cardPrev: { fontSize: 9, color: FAINT, marginTop: 4, textAlign: "right" },
   chartBlock: { marginBottom: 14 },
   chartTitle: { fontSize: 13, fontWeight: 700, marginBottom: 3, textAlign: "right" },
+  dailyBlock: { marginBottom: 18 },
+  dailyKpisRow: { flexDirection: "row-reverse", flexWrap: "wrap", marginTop: 6, marginBottom: 10 },
+  dailyKpi: {
+    backgroundColor: "#F7F8FB",
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 6,
+    padding: 8,
+    marginLeft: 10,
+    marginBottom: 8,
+    minWidth: 86,
+  },
+  dailyKpiLabel: { fontSize: 8.5, color: MUTED, fontWeight: 500, marginBottom: 4, textAlign: "right" },
+  dailyKpiValue: { fontSize: 13, fontWeight: 700, textAlign: "right" },
+  thDailyLabel: { width: 130, padding: 6, fontSize: 9, fontWeight: 700, color: MUTED, textAlign: "center" },
+  tdDailyLabel: { width: 130, padding: 6, fontSize: 9, fontWeight: 700, textAlign: "center" },
   chartImageRow: { flexDirection: "row-reverse" },
   chartImage: { width: CHART_DISPLAY_WIDTH },
   legendRow: { flexDirection: "row-reverse", flexWrap: "wrap", marginBottom: 6 },
@@ -99,7 +115,44 @@ function HeaderBlock({ subtitle }) {
   );
 }
 
-function DashboardDocument({ subtitle, kpis, tableColumns, tableRows, charts }) {
+function DailySection({ daily }) {
+  if (!daily) return null;
+  return (
+    <View style={styles.dailyBlock} wrap={false}>
+      <Text style={styles.chartTitle}>{daily.title}</Text>
+      <View style={styles.dailyKpisRow}>
+        {daily.kpis.map((k) => (
+          <View key={k.label} style={styles.dailyKpi}>
+            <Text style={styles.dailyKpiLabel}>{k.label}</Text>
+            <Text style={styles.dailyKpiValue}>{k.value}</Text>
+          </View>
+        ))}
+      </View>
+      <View style={styles.table}>
+        <View style={styles.tHeadRow}>
+          <Text style={styles.thDailyLabel}>תאריך</Text>
+          {daily.columns.map((label) => (
+            <Text key={label} style={styles.th}>
+              {label}
+            </Text>
+          ))}
+        </View>
+        {daily.rows.map((row, i) => (
+          <View key={row.label + i} style={[styles.tRow, i % 2 === 1 ? styles.tRowAlt : null]}>
+            <Text style={styles.tdDailyLabel}>{row.label}</Text>
+            {row.values.map((v, j) => (
+              <Text key={j} style={styles.td}>
+                {v}
+              </Text>
+            ))}
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function DashboardDocument({ subtitle, kpis, daily, tableColumns, tableRows, charts }) {
   return (
     <Document>
       <Page size="A4" orientation="landscape" style={styles.page} wrap>
@@ -119,6 +172,8 @@ function DashboardDocument({ subtitle, kpis, tableColumns, tableRows, charts }) 
             );
           })}
         </View>
+
+        <DailySection daily={daily} />
 
         {charts.map(
           (chart) =>
@@ -162,12 +217,26 @@ function DashboardDocument({ subtitle, kpis, tableColumns, tableRows, charts }) 
   );
 }
 
-export async function buildDashboardPdfBlob({ subtitle, kpis, tableColumns, tableRows, charts }) {
+export async function buildDashboardPdfBlob({ subtitle, kpis, daily, tableColumns, tableRows, charts }) {
   registerFonts();
+  // The daily section's revenue values come from the Intl currency formatter,
+  // so every string in it must be stripped of bidi control marks (see above).
+  const cleanDaily = daily
+    ? {
+        title: stripBidi(daily.title),
+        kpis: daily.kpis.map((k) => ({ label: k.label, value: stripBidi(k.value) })),
+        columns: daily.columns,
+        rows: daily.rows.map((r) => ({
+          label: stripBidi(r.label),
+          values: r.values.map((v) => stripBidi(v)),
+        })),
+      }
+    : null;
   const doc = (
     <DashboardDocument
       subtitle={stripBidi(subtitle)}
       kpis={kpis}
+      daily={cleanDaily}
       tableColumns={tableColumns}
       tableRows={tableRows}
       charts={charts}
