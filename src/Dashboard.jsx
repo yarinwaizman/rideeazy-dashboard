@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import * as XLSX from "xlsx";
 import {
   ResponsiveContainer,
@@ -20,8 +20,11 @@ import { useLoadableFile } from "./lib/useLoadableFile.js";
 import { fetchDatasets, saveDataset, OPS_DATASET, REVENUE_DATASET } from "./lib/datasets.js";
 import { availableMonths, monthSummary, formatMonthLabel } from "./lib/monthlyReport.js";
 import { supabase } from "./lib/supabaseClient.js";
+import { formatShekel, formatShekelShort, pctChange, formatTimestamp } from "./lib/format.js";
+import { downloadMonthlyReportPdf } from "./lib/pdf/MonthlyReportPdf.jsx";
+import { downloadDashboardPdf } from "./lib/pdf/DashboardPdf.jsx";
+import { captureChartAsPng } from "./lib/pdf/captureChart.js";
 import logo from "./assets/rideeazy-logo.png";
-import "./print.css";
 
 const REVENUE_KEY = "הכנסות";
 
@@ -45,11 +48,6 @@ const GRID = BORDER;
 const RADIUS = 16; // cards, inputs
 const RADIUS_PILL = 999; // buttons, tabs
 
-function pctChange(curr, prev) {
-  if (!prev || prev === 0) return null;
-  return ((curr - prev) / prev) * 100;
-}
-
 function Delta({ value }) {
   if (value === null || value === undefined || Number.isNaN(value)) {
     return <span style={{ color: "#A8ADBD", fontSize: 12 }}>—</span>;
@@ -67,31 +65,6 @@ function formatShortDate(iso) {
   return `${d}/${m}`;
 }
 
-const shekelFormatter = new Intl.NumberFormat("he-IL", {
-  style: "currency",
-  currency: "ILS",
-  maximumFractionDigits: 0,
-});
-
-function formatShekel(v) {
-  return shekelFormatter.format(v || 0);
-}
-
-function formatShekelShort(v) {
-  if (Math.abs(v) >= 1000) return `${(v / 1000).toFixed(1)}K ₪`;
-  return `${Math.round(v)} ₪`;
-}
-
-function formatTimestamp(iso) {
-  if (!iso) return null;
-  return new Date(iso).toLocaleString("he-IL", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 const EXCEL_ACCEPT = {
   description: "Excel",
   accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] },
@@ -100,6 +73,15 @@ const CSV_ACCEPT = { description: "CSV", accept: { "text/csv": [".csv"] } };
 
 export default function Dashboard() {
   const [range, setRange] = useState("all"); // 'all' | '8w' | '4w'
+
+  // DOM refs to each chart's wrapping div, used to rasterize the live
+  // Recharts <svg> into a PNG for the full-dashboard PDF export (react-pdf
+  // can't render Recharts directly).
+  const weeklyRevenueChartRef = useRef(null);
+  const monthlyRevenueChartRef = useRef(null);
+  const funnelTrendChartRef = useRef(null);
+  const monthlyClosedOrdersChartRef = useRef(null);
+  const conversionRatesChartRef = useRef(null);
 
   // Cloud-backed datasets — the single source of truth for every device.
   // Uploading a file on any machine writes here, so everyone stays in sync.
@@ -234,11 +216,63 @@ export default function Dashboard() {
     return { from, to, matched, summary, missingDates };
   }, [mergedDays, dailyFrom, dailyTo]);
 
-  const exportPdf = () => window.print();
+  const [pdfExporting, setPdfExporting] = useState(false);
+  const exportPdf = async () => {
+    if (!latest) return;
+    setPdfExporting(true);
+    try {
+      const kpiCards = kpis.map((k) => ({
+        label: k.label,
+        curr: latest.metrics[k.key] || 0,
+        before: prev ? prev.metrics[k.key] || 0 : 0,
+      }));
+      const tableColumns = allMetricKeys.map((k) => METRIC_LABELS[k]);
+      const tableRows = data.map((w) => ({
+        week: w.week,
+        values: allMetricKeys.map((k) => w.metrics[k] ?? "–"),
+      }));
+      // Recharts renders <Legend> as an HTML element beside the <svg>, not
+      // inside it, so rasterizing the svg alone drops it — supply the same
+      // series/colors here and render the legend as real PDF text instead.
+      const chartRefsWithTitles = [
+        {
+          title: "מגמת המשפך השבועית",
+          ref: funnelTrendChartRef,
+          legend: [
+            { label: "כניסות לדף נחיתה", color: "#DDE1EE" },
+            { label: "הרשמות לאתר", color: NAVY },
+            { label: "הצעות מחיר", color: "#8B90AD" },
+            { label: "הזמנות", color: TEAL },
+          ],
+        },
+        { title: "הכנסות שבועיות", ref: weeklyRevenueChartRef },
+        { title: "הכנסות חודשיות", ref: monthlyRevenueChartRef },
+        { title: "סה״כ הזמנות שנסגרו לפי חודש", ref: monthlyClosedOrdersChartRef },
+        {
+          title: "אחוזי המרה",
+          ref: conversionRatesChartRef,
+          legend: [
+            { label: "המרה לליד", color: NAVY },
+            { label: "פתיחת מכרז", color: TEAL },
+            { label: "מכירה", color: "#D5504A" },
+          ],
+        },
+      ];
+      const charts = await Promise.all(
+        chartRefsWithTitles.map(async ({ title, ref, legend }) => {
+          const capture = await captureChartAsPng(ref.current);
+          return capture ? { title, legend, ...capture } : null;
+        })
+      );
+      const subtitle = `${weeks.length} שבועות · עודכן עד ${latest.week}${ops?.fileName ? ` · ${ops.fileName}` : ""}`;
+      await downloadDashboardPdf({ subtitle, kpis: kpiCards, tableColumns, tableRows, charts });
+    } finally {
+      setPdfExporting(false);
+    }
+  };
 
-  // Monthly report: a concise MoM executive summary for one month, printed
-  // separately from the full dashboard (see .dashboard-root /
-  // .monthly-report-root toggle in print.css).
+  // Monthly report: a concise MoM executive summary for one month, exported
+  // as its own PDF (see lib/pdf/MonthlyReportPdf.jsx).
   const reportMonths = useMemo(() => availableMonths(days, revenueDays), [days, revenueDays]);
   const [reportMonth, setReportMonth] = useState("");
   useEffect(() => {
@@ -252,37 +286,18 @@ export default function Dashboard() {
     [days, revenueDays, reportMonth]
   );
 
-  const printMonthlyReport = () => {
-    const cleanup = () => {
-      document.body.classList.remove("printing-monthly-report");
-      window.removeEventListener("afterprint", cleanup);
-    };
-    window.addEventListener("afterprint", cleanup);
-    document.body.classList.add("printing-monthly-report");
-    setTimeout(() => window.print(), 50);
+  const [reportExporting, setReportExporting] = useState(false);
+  const exportMonthlyReport = async () => {
+    if (!report) return;
+    setReportExporting(true);
+    try {
+      await downloadMonthlyReportPdf({ report, kpis, revenueKey: REVENUE_KEY });
+    } finally {
+      setReportExporting(false);
+    }
   };
 
-  // Recharts' ResponsiveContainer sizes each chart via ResizeObserver on its
-  // wrapping div, measured against the on-screen layout. It doesn't reliably
-  // re-measure when the browser switches to the print page's (narrower,
-  // landscape) dimensions, so charts can overflow/get cut off in the PDF
-  // unless something nudges a re-measurement right as printing starts.
-  useEffect(() => {
-    const remeasure = () => window.dispatchEvent(new Event("resize"));
-    const mql = window.matchMedia("print");
-    const onMqlChange = (e) => {
-      if (e.matches) remeasure();
-    };
-    mql.addEventListener?.("change", onMqlChange);
-    window.addEventListener("beforeprint", remeasure);
-    return () => {
-      mql.removeEventListener?.("change", onMqlChange);
-      window.removeEventListener("beforeprint", remeasure);
-    };
-  }, []);
-
   return (
-    <>
     <div
       dir="rtl"
       className="dashboard-root"
@@ -339,6 +354,7 @@ export default function Dashboard() {
         <div className="no-print" style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button
             onClick={exportPdf}
+            disabled={pdfExporting}
             style={{
               background: "transparent",
               color: "#D8DAEA",
@@ -346,11 +362,11 @@ export default function Dashboard() {
               borderRadius: RADIUS_PILL,
               padding: "6px 14px",
               fontSize: 13,
-              cursor: "pointer",
+              cursor: pdfExporting ? "wait" : "pointer",
               fontWeight: 700,
             }}
           >
-            ייצוא ל-PDF
+            {pdfExporting ? "מייצא…" : "ייצוא ל-PDF"}
           </button>
           <div style={{ width: 1, alignSelf: "stretch", background: "rgba(255,255,255,0.2)" }} />
           <button
@@ -709,8 +725,8 @@ export default function Dashboard() {
                     ))}
                   </select>
                   <button
-                    onClick={printMonthlyReport}
-                    disabled={!report}
+                    onClick={exportMonthlyReport}
+                    disabled={!report || reportExporting}
                     style={{
                       background: TEAL,
                       color: NAVY,
@@ -718,11 +734,11 @@ export default function Dashboard() {
                       borderRadius: RADIUS_PILL,
                       padding: "8px 16px",
                       fontSize: 13,
-                      cursor: report ? "pointer" : "not-allowed",
+                      cursor: report && !reportExporting ? "pointer" : "not-allowed",
                       fontWeight: 700,
                     }}
                   >
-                    ייצוא דוח חודשי
+                    {reportExporting ? "מייצא…" : "ייצוא דוח חודשי"}
                   </button>
                 </div>
               </div>
@@ -904,50 +920,54 @@ export default function Dashboard() {
                       ))}
                     </div>
                   </div>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <ComposedChart data={revenueChartData} margin={{ top: 20, right: 10, left: -10, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
-                      <XAxis dataKey="label" tick={{ fill: "#8B90AD", fontSize: 10.5 }} />
-                      <YAxis tick={{ fill: "#8B90AD", fontSize: 11 }} tickFormatter={formatShekelShort} />
-                      <Tooltip
-                        contentStyle={{ background: "#FFFFFF", border: `1px solid ${BORDER}`, borderRadius: RADIUS, fontSize: 12 }}
-                        labelStyle={{ color: NAVY, fontWeight: 700 }}
-                        formatter={(v) => formatShekel(v)}
-                      />
-                      <Bar dataKey="revenue" name="הכנסות" fill={TEAL} radius={[3, 3, 0, 0]}>
-                        <LabelList
-                          dataKey="revenue"
-                          position="top"
-                          formatter={formatShekelShort}
-                          style={{ fill: NAVY, fontSize: 10.5, fontWeight: 700 }}
+                  <div ref={weeklyRevenueChartRef}>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <ComposedChart data={revenueChartData} margin={{ top: 20, right: 10, left: -10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
+                        <XAxis dataKey="label" tick={{ fill: "#8B90AD", fontSize: 10.5 }} />
+                        <YAxis tick={{ fill: "#8B90AD", fontSize: 11 }} tickFormatter={formatShekelShort} />
+                        <Tooltip
+                          contentStyle={{ background: "#FFFFFF", border: `1px solid ${BORDER}`, borderRadius: RADIUS, fontSize: 12 }}
+                          labelStyle={{ color: NAVY, fontWeight: 700 }}
+                          formatter={(v) => formatShekel(v)}
                         />
-                      </Bar>
-                    </ComposedChart>
-                  </ResponsiveContainer>
+                        <Bar dataKey="revenue" name="הכנסות" fill={TEAL} radius={[3, 3, 0, 0]}>
+                          <LabelList
+                            dataKey="revenue"
+                            position="top"
+                            formatter={formatShekelShort}
+                            style={{ fill: NAVY, fontSize: 10.5, fontWeight: 700 }}
+                          />
+                        </Bar>
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
 
                   <div style={{ fontSize: 13, fontWeight: 700, color: NAVY, margin: "20px 0 4px" }}>
                     הכנסות חודשיות
                   </div>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <BarChart data={monthlyRevenueData} margin={{ top: 20, right: 10, left: -10, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
-                      <XAxis dataKey="label" tick={{ fill: "#8B90AD", fontSize: 11 }} />
-                      <YAxis tick={{ fill: "#8B90AD", fontSize: 11 }} tickFormatter={formatShekelShort} />
-                      <Tooltip
-                        contentStyle={{ background: "#FFFFFF", border: `1px solid ${BORDER}`, borderRadius: RADIUS, fontSize: 12 }}
-                        labelStyle={{ color: NAVY, fontWeight: 700 }}
-                        formatter={(v) => formatShekel(v)}
-                      />
-                      <Bar dataKey="revenue" name="הכנסות" fill={NAVY} radius={[3, 3, 0, 0]}>
-                        <LabelList
-                          dataKey="revenue"
-                          position="top"
-                          formatter={formatShekelShort}
-                          style={{ fill: NAVY, fontSize: 11, fontWeight: 700 }}
+                  <div ref={monthlyRevenueChartRef}>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <BarChart data={monthlyRevenueData} margin={{ top: 20, right: 10, left: -10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
+                        <XAxis dataKey="label" tick={{ fill: "#8B90AD", fontSize: 11 }} />
+                        <YAxis tick={{ fill: "#8B90AD", fontSize: 11 }} tickFormatter={formatShekelShort} />
+                        <Tooltip
+                          contentStyle={{ background: "#FFFFFF", border: `1px solid ${BORDER}`, borderRadius: RADIUS, fontSize: 12 }}
+                          labelStyle={{ color: NAVY, fontWeight: 700 }}
+                          formatter={(v) => formatShekel(v)}
                         />
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
+                        <Bar dataKey="revenue" name="הכנסות" fill={NAVY} radius={[3, 3, 0, 0]}>
+                          <LabelList
+                            dataKey="revenue"
+                            position="top"
+                            formatter={formatShekelShort}
+                            style={{ fill: NAVY, fontSize: 11, fontWeight: 700 }}
+                          />
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
                 </>
               )}
             </div>
@@ -970,22 +990,24 @@ export default function Dashboard() {
               <div style={{ fontSize: 12, color: "#8B90AD", marginBottom: 12 }}>
                 כניסות → הרשמות לאתר → הצעות מחיר → הזמנות
               </div>
-              <ResponsiveContainer width="100%" height={320}>
-                <ComposedChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
-                  <XAxis dataKey="week" tick={{ fill: "#8B90AD", fontSize: 11 }} />
-                  <YAxis tick={{ fill: "#8B90AD", fontSize: 11 }} />
-                  <Tooltip
-                    contentStyle={{ background: "#FFFFFF", border: `1px solid ${BORDER}`, borderRadius: RADIUS, fontSize: 12 }}
-                    labelStyle={{ color: NAVY, fontWeight: 700 }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="כניסות לדף נחיתה" fill="#DDE1EE" radius={[3, 3, 0, 0]} />
-                  <Line type="monotone" dataKey="הרשמות לאתר" stroke={NAVY} strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="הצעות מחיר" stroke="#8B90AD" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="הזמנות" stroke={TEAL} strokeWidth={3} dot={{ r: 3, fill: TEAL }} />
-                </ComposedChart>
-              </ResponsiveContainer>
+              <div ref={funnelTrendChartRef}>
+                <ResponsiveContainer width="100%" height={320}>
+                  <ComposedChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
+                    <XAxis dataKey="week" tick={{ fill: "#8B90AD", fontSize: 11 }} />
+                    <YAxis tick={{ fill: "#8B90AD", fontSize: 11 }} />
+                    <Tooltip
+                      contentStyle={{ background: "#FFFFFF", border: `1px solid ${BORDER}`, borderRadius: RADIUS, fontSize: 12 }}
+                      labelStyle={{ color: NAVY, fontWeight: 700 }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Bar dataKey="כניסות לדף נחיתה" fill="#DDE1EE" radius={[3, 3, 0, 0]} />
+                    <Line type="monotone" dataKey="הרשמות לאתר" stroke={NAVY} strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="הצעות מחיר" stroke="#8B90AD" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="הזמנות" stroke={TEAL} strokeWidth={3} dot={{ r: 3, fill: TEAL }} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
             </div>
 
             {/* Monthly closed-orders summary */}
@@ -1006,20 +1028,22 @@ export default function Dashboard() {
               <div style={{ fontSize: 12, color: "#8B90AD", marginBottom: 12 }}>
                 סכום "הזמנות ממכרזים" מכל השבועות בכל חודש
               </div>
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={monthlyClosedOrders} margin={{ top: 20, right: 10, left: -10, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
-                  <XAxis dataKey="month" tick={{ fill: "#8B90AD", fontSize: 12 }} />
-                  <YAxis tick={{ fill: "#8B90AD", fontSize: 11 }} allowDecimals={false} />
-                  <Tooltip
-                    contentStyle={{ background: "#FFFFFF", border: `1px solid ${BORDER}`, borderRadius: RADIUS, fontSize: 12 }}
-                    labelStyle={{ color: NAVY, fontWeight: 700 }}
-                  />
-                  <Bar dataKey="total" name="הזמנות" fill={TEAL} radius={[3, 3, 0, 0]}>
-                    <LabelList dataKey="total" position="top" style={{ fill: NAVY, fontSize: 12, fontWeight: 700 }} />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              <div ref={monthlyClosedOrdersChartRef}>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={monthlyClosedOrders} margin={{ top: 20, right: 10, left: -10, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
+                    <XAxis dataKey="month" tick={{ fill: "#8B90AD", fontSize: 12 }} />
+                    <YAxis tick={{ fill: "#8B90AD", fontSize: 11 }} allowDecimals={false} />
+                    <Tooltip
+                      contentStyle={{ background: "#FFFFFF", border: `1px solid ${BORDER}`, borderRadius: RADIUS, fontSize: 12 }}
+                      labelStyle={{ color: NAVY, fontWeight: 700 }}
+                    />
+                    <Bar dataKey="total" name="הזמנות" fill={TEAL} radius={[3, 3, 0, 0]}>
+                      <LabelList dataKey="total" position="top" style={{ fill: NAVY, fontSize: 12, fontWeight: 700 }} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             </div>
 
             {/* Conversion rates (only weeks that have this data) */}
@@ -1041,22 +1065,24 @@ export default function Dashboard() {
                 <div style={{ fontSize: 12, color: "#8B90AD", marginBottom: 12 }}>
                   החל מהמעקב שהתווסף באמצע יוני
                 </div>
-                <ResponsiveContainer width="100%" height={260}>
-                  <ComposedChart data={rateData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
-                    <XAxis dataKey="week" tick={{ fill: "#8B90AD", fontSize: 11 }} />
-                    <YAxis tick={{ fill: "#8B90AD", fontSize: 11 }} unit="%" />
-                    <Tooltip
-                      contentStyle={{ background: "#FFFFFF", border: `1px solid ${BORDER}`, borderRadius: RADIUS, fontSize: 12 }}
-                      labelStyle={{ color: NAVY, fontWeight: 700 }}
-                      formatter={(v) => `${v}%`}
-                    />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Line type="monotone" dataKey="המרה לליד" stroke={NAVY} strokeWidth={2} />
-                    <Line type="monotone" dataKey="פתיחת מכרז" stroke={TEAL} strokeWidth={2.5} />
-                    <Line type="monotone" dataKey="מכירה" stroke="#D5504A" strokeWidth={2} />
-                  </ComposedChart>
-                </ResponsiveContainer>
+                <div ref={conversionRatesChartRef}>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <ComposedChart data={rateData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
+                      <XAxis dataKey="week" tick={{ fill: "#8B90AD", fontSize: 11 }} />
+                      <YAxis tick={{ fill: "#8B90AD", fontSize: 11 }} unit="%" />
+                      <Tooltip
+                        contentStyle={{ background: "#FFFFFF", border: `1px solid ${BORDER}`, borderRadius: RADIUS, fontSize: 12 }}
+                        labelStyle={{ color: NAVY, fontWeight: 700 }}
+                        formatter={(v) => `${v}%`}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      <Line type="monotone" dataKey="המרה לליד" stroke={NAVY} strokeWidth={2} />
+                      <Line type="monotone" dataKey="פתיחת מכרז" stroke={TEAL} strokeWidth={2.5} />
+                      <Line type="monotone" dataKey="מכירה" stroke="#D5504A" strokeWidth={2} />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
             )}
 
@@ -1105,122 +1131,6 @@ export default function Dashboard() {
         )}
       </div>
     </div>
-
-    {/* Printable monthly report — hidden on screen, shown only during
-        printMonthlyReport()'s print pass (see print.css). Rendered as a
-        sibling of dashboard-root (not nested inside it), since an
-        ancestor's display:none can't be overridden by a child. */}
-    {report && (
-        <div
-          className="monthly-report-root"
-          dir="rtl"
-          style={{
-            fontFamily:
-              "'Rubik', 'Open Sans Hebrew', 'Open Sans', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif",
-            color: NAVY,
-            padding: 24,
-            // Fixed px, not %: some print engines resolve percentage widths
-            // against the on-screen body width rather than the actual
-            // printable page area, which silently reproduces overflow no
-            // matter how "correct" the percentages are. A fixed width has
-            // no ambiguous basis to miscompute — 900px comfortably fits
-            // both US Letter and A4 landscape with margins (~960-1030px).
-            width: 900,
-            boxSizing: "border-box",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-            <div>
-              <img src={logo} alt="Rideeazy" style={{ height: 36, marginBottom: 10, display: "block" }} />
-              <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: NAVY }}>דוח חודשי — {report.label}</h1>
-              <div style={{ fontSize: 12, color: "#6B7099", marginTop: 4 }}>
-                בהשוואה ל{report.prevLabel} · הופק ב-{formatTimestamp(new Date().toISOString())}
-              </div>
-            </div>
-          </div>
-
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 14,
-              marginBottom: 24,
-            }}
-          >
-            {[...kpis, { key: REVENUE_KEY, label: "הכנסות" }].map((k) => {
-              const curr = k.key === REVENUE_KEY ? report.revenue : report.metrics[k.key] || 0;
-              const before = k.key === REVENUE_KEY ? report.prevRevenue : report.prevMetrics[k.key] || 0;
-              return (
-                <div
-                  key={k.key}
-                  style={{
-                    background: "#FFFFFF",
-                    border: `1px solid ${BORDER}`,
-                    borderTop: `3px solid ${TEAL}`,
-                    borderRadius: RADIUS,
-                    padding: "14px 16px",
-                    boxSizing: "border-box",
-                    width: 270, // fixed: 3 per row within the report's fixed 900px width
-                  }}
-                >
-                  <div style={{ fontSize: 12, color: "#6B7099", marginBottom: 6, fontWeight: 600 }}>{k.label}</div>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                    <span style={{ fontSize: 22, fontWeight: 700, color: NAVY }}>
-                      {k.key === REVENUE_KEY ? formatShekel(curr) : curr}
-                    </span>
-                    <Delta value={pctChange(curr, before)} />
-                  </div>
-                  <div style={{ fontSize: 10.5, color: "#9498B5", marginTop: 3 }}>
-                    {report.prevLabel}: {k.key === REVENUE_KEY ? formatShekel(before) : before}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <table
-            style={{
-              width: 852, // fixed, same basis as the report root (900px minus its 24px*2 padding)
-              tableLayout: "fixed",
-              borderCollapse: "collapse",
-              fontSize: 13,
-            }}
-          >
-            <colgroup>
-              <col style={{ width: 300 }} />
-              <col style={{ width: 184 }} />
-              <col style={{ width: 184 }} />
-              <col style={{ width: 184 }} />
-            </colgroup>
-            <thead>
-              <tr>
-                <th style={reportThStyle}>מדד</th>
-                <th style={reportThStyle}>{report.label}</th>
-                <th style={reportThStyle}>{report.prevLabel}</th>
-                <th style={reportThStyle}>שינוי</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...kpis, { key: REVENUE_KEY, label: "הכנסות" }].map((k, i) => {
-                const curr = k.key === REVENUE_KEY ? report.revenue : report.metrics[k.key] || 0;
-                const before = k.key === REVENUE_KEY ? report.prevRevenue : report.prevMetrics[k.key] || 0;
-                const delta = pctChange(curr, before);
-                return (
-                  <tr key={k.key} style={{ background: i % 2 === 0 ? "#FFFFFF" : "#F7F8FB" }}>
-                    <td style={{ ...reportTdStyle, fontWeight: 700, color: NAVY }}>{k.label}</td>
-                    <td style={reportTdStyle}>{k.key === REVENUE_KEY ? formatShekel(curr) : curr}</td>
-                    <td style={reportTdStyle}>{k.key === REVENUE_KEY ? formatShekel(before) : before}</td>
-                    <td style={reportTdStyle}>
-                      {delta === null ? "—" : `${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta).toFixed(0)}%`}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </>
   );
 }
 
@@ -1239,10 +1149,3 @@ const tdStyle = {
   color: "#3A3F63",
   whiteSpace: "nowrap",
 };
-
-// Same look as thStyle/tdStyle but allows wrapping — the monthly report's
-// table has no horizontal-scroll container (unlike the dashboard's other
-// tables), so forcing nowrap on Hebrew labels made columns wider than the
-// printable page and got the whole report clipped.
-const reportThStyle = { ...thStyle, whiteSpace: "normal", wordBreak: "break-word" };
-const reportTdStyle = { ...tdStyle, whiteSpace: "normal", wordBreak: "break-word" };

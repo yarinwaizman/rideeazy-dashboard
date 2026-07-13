@@ -12,6 +12,7 @@ exports through the UI.
 - Vite 5 build tooling
 - Recharts for charts, `xlsx` (SheetJS) for parsing the ops workbook, `papaparse` for the revenue CSV
 - Supabase (`@supabase/supabase-js`) for auth + data storage
+- `@react-pdf/renderer` for both PDF exports (true text-based PDFs, not browser print)
 - Deployed as a static build to GitHub Pages
 
 ## Commands
@@ -33,7 +34,6 @@ src/
   main.jsx              — mounts <PasswordGate><Dashboard /></PasswordGate>
   PasswordGate.jsx       — password form that signs into shared Supabase auth account
   Dashboard.jsx          — the entire app UI: KPIs, daily view, revenue, funnel/rate charts, full table
-  print.css              — @media print rules for the "Export to PDF" button (window.print())
   lib/
     supabaseClient.js     — Supabase client + shared login email constant
     datasets.js           — fetch/save the two dataset rows ('ops', 'revenue') in Supabase
@@ -41,6 +41,13 @@ src/
     parseRevenue.js        — parses the EZcount revenue CSV export into days/weeks/months
     fileHandle.js          — IndexedDB-backed FileSystemFileHandle persistence (Chrome/Edge "remember this file")
     useLoadableFile.js      — shared hook wiring together: pick file → parse → persist to Supabase → update state
+    format.js              — shared formatters (formatShekel, pctChange, formatTimestamp) used by both the UI and the PDF exports
+    monthlyReport.js        — MoM summary data (available months, current vs. previous month totals)
+    pdf/
+      fonts.js              — registers the Rubik TTF files with @react-pdf/renderer (must be static-weight files, not a variable font — see below)
+      captureChart.js        — rasterizes a live Recharts <svg> to a PNG data URL (react-pdf can't render Recharts directly)
+      MonthlyReportPdf.jsx    — builds/downloads the one-month MoM PDF report
+      DashboardPdf.jsx        — builds/downloads the full dashboard PDF (KPIs + one chart image per page + full data table)
 supabase/
   schema.sql             — the `datasets` table + RLS policies (reference copy; already applied live)
 .github/workflows/deploy.yml — build + deploy to GitHub Pages on push to main
@@ -111,12 +118,36 @@ before changing parsing logic:
   (`NAVY`, `TEAL`, `BORDER`, `BG`) matching the palette pulled from
   `app.rideeazy.co.il`; reuse these rather than introducing new colors.
 - Currency formatting always via the shared `Intl.NumberFormat('he-IL', ...)`
-  helpers (`formatShekel`, `formatShekelShort`) in `Dashboard.jsx`.
-- PDF export is just `window.print()` — styling for print lives entirely in
-  `print.css` (`.no-print`, `.print-avoid-break`, `.print-table-wrap`
-  classes). If you add a new dashboard section, wrap it with
-  `className="print-avoid-break"` so it doesn't get cut across a page break,
-  and mark any UI-only controls `className="no-print"`.
+  helpers (`formatShekel`, `formatShekelShort`) in `lib/format.js`.
+- Both PDF exports ("ייצוא ל-PDF" and "ייצוא דוח חודשי") build a true
+  text-based PDF with `@react-pdf/renderer` — **not** `window.print()`.
+  That approach was tried first and abandoned: browser print engines proved
+  unreliable across scale/orientation settings in ways that couldn't be
+  fixed with CSS, and unlike CSS-based printing, react-pdf output can
+  actually be generated and inspected headlessly (`pdf(doc).toBlob()` +
+  reading the file), which is how these exports were verified.
+  - `MonthlyReportPdf.jsx` and `DashboardPdf.jsx` each export a
+    `download*Pdf(...)` function called directly from the dashboard's
+    export buttons.
+  - **Bidi gotcha**: `Intl.NumberFormat('he-IL', { style: 'currency', ... })`
+    embeds invisible RLM/LRM bidi-control characters (U+200E/U+200F etc.)
+    around the currency symbol. react-pdf's font-shaping engine has no
+    glyph for them and doesn't just render them oddly — it can silently
+    corrupt the layout of *later* siblings too (an entire table rendered
+    after the corrupted text can vanish with no error thrown). Always run
+    locale-formatted strings through `stripBidi()` (defined in both PDF
+    files) before passing them to a react-pdf `<Text>`.
+  - Charts aren't real react-pdf elements — react-pdf can't render Recharts
+    directly. `captureChart.js` rasterizes the *live* Recharts `<svg>` (via
+    a DOM ref on each chart's wrapping div) to a PNG, which is then embedded
+    as a react-pdf `<Image>`. Recharts renders its `<Legend>` as a separate
+    HTML element beside the `<svg>`, not inside it, so it's dropped by this
+    rasterization — charts that need a legend pass one manually (label +
+    color per series) and `DashboardPdf.jsx` renders it as real PDF text
+    above the chart image instead.
+  - The `Rubik-*.ttf` files in `src/assets/fonts/` must stay static-weight
+    instances (Regular/Medium/Bold), not a variable font — react-pdf's
+    fontkit-based layout engine doesn't reliably handle variable fonts.
 - No abstractions beyond what's needed — this is a small internal tool, not
   a product with many consumers. Prefer keeping logic in the existing files
   over introducing new layers.
