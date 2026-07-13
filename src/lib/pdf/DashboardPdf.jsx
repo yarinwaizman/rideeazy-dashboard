@@ -17,7 +17,11 @@ const FAINT = "#9498B5";
 const UP = "#1F9E76";
 const DOWN = "#D5504A";
 
-const CHART_DISPLAY_WIDTH = 480;
+// Charts are rasterized PNGs, so their text size on the page is set by this
+// display width alone (source resolution doesn't affect legibility). Keep
+// this close to the page's full content width — shrinking it to pack more
+// charts per page makes the baked-in text too small to read.
+const CHART_DISPLAY_WIDTH = 700;
 
 const styles = StyleSheet.create({
   page: { padding: 36, fontFamily: "Rubik", direction: "rtl", color: NAVY, fontSize: 11 },
