@@ -17,7 +17,7 @@ const FAINT = "#9498B5";
 const UP = "#1F9E76";
 const DOWN = "#D5504A";
 
-const CHART_DISPLAY_WIDTH = 750;
+const CHART_DISPLAY_WIDTH = 480;
 
 const styles = StyleSheet.create({
   page: { padding: 36, fontFamily: "Rubik", direction: "rtl", color: NAVY, fontSize: 11 },
@@ -25,7 +25,7 @@ const styles = StyleSheet.create({
   logo: { width: 75, height: 30, marginBottom: 10 },
   title: { fontSize: 20, fontWeight: 700, textAlign: "right" },
   subtitle: { fontSize: 10.5, color: MUTED, textAlign: "right", marginTop: 4 },
-  cardsRow: { flexDirection: "row-reverse", flexWrap: "wrap", marginBottom: 10 },
+  cardsRow: { flexDirection: "row-reverse", flexWrap: "wrap", marginBottom: 18 },
   card: {
     width: 170,
     borderWidth: 1,
@@ -42,9 +42,11 @@ const styles = StyleSheet.create({
   cardValue: { fontSize: 16, fontWeight: 700, textAlign: "right" },
   cardDelta: { fontSize: 9.5, fontWeight: 700, marginRight: 6 },
   cardPrev: { fontSize: 9, color: FAINT, marginTop: 4, textAlign: "right" },
-  chartTitle: { fontSize: 14, fontWeight: 700, marginBottom: 4, textAlign: "right" },
+  chartBlock: { marginBottom: 14 },
+  chartTitle: { fontSize: 13, fontWeight: 700, marginBottom: 3, textAlign: "right" },
+  chartImageRow: { flexDirection: "row-reverse" },
   chartImage: { width: CHART_DISPLAY_WIDTH },
-  legendRow: { flexDirection: "row-reverse", flexWrap: "wrap", marginBottom: 10 },
+  legendRow: { flexDirection: "row-reverse", flexWrap: "wrap", marginBottom: 6 },
   legendItem: { flexDirection: "row-reverse", alignItems: "center", marginLeft: 16 },
   legendSwatch: { width: 9, height: 9, borderRadius: 2, marginLeft: 5 },
   legendLabel: { fontSize: 9.5, color: MUTED },
@@ -96,7 +98,7 @@ function HeaderBlock({ subtitle }) {
 function DashboardDocument({ subtitle, kpis, tableColumns, tableRows, charts }) {
   return (
     <Document>
-      <Page size="A4" orientation="landscape" style={styles.page}>
+      <Page size="A4" orientation="landscape" style={styles.page} wrap>
         <HeaderBlock subtitle={subtitle} />
         <View style={styles.cardsRow}>
           {kpis.map((k) => {
@@ -113,23 +115,23 @@ function DashboardDocument({ subtitle, kpis, tableColumns, tableRows, charts }) 
             );
           })}
         </View>
-      </Page>
 
-      {charts.map(
-        (chart) =>
-          chart && (
-            <Page key={chart.title} size="A4" orientation="landscape" style={styles.page}>
-              <Text style={styles.chartTitle}>{chart.title}</Text>
-              <ChartLegend items={chart.legend} />
-              <Image
-                src={chart.dataUrl}
-                style={[styles.chartImage, { height: CHART_DISPLAY_WIDTH * (chart.height / chart.width) }]}
-              />
-            </Page>
-          )
-      )}
+        {charts.map(
+          (chart) =>
+            chart && (
+              <View key={chart.title} style={styles.chartBlock} wrap={false}>
+                <Text style={styles.chartTitle}>{chart.title}</Text>
+                <ChartLegend items={chart.legend} />
+                <View style={styles.chartImageRow}>
+                  <Image
+                    src={chart.dataUrl}
+                    style={[styles.chartImage, { height: CHART_DISPLAY_WIDTH * (chart.height / chart.width) }]}
+                  />
+                </View>
+              </View>
+            )
+        )}
 
-      <Page size="A4" orientation="landscape" style={styles.page} wrap>
         <Text style={styles.chartTitle}>פירוט שבועי מלא</Text>
         <View style={styles.table}>
           <View style={styles.tHeadRow} fixed>
